@@ -1,17 +1,13 @@
-// src/routes/userRoutes.js
 const express = require('express');
-const router = express.Router();
-const UserController = require('../controllers/user.Controller');
-const { authenticate, authorize } = require('../../middleware/auth');
-const { USER_ROLES } = require('../../config/constant');
+const { getAllUsers } = require('../controllers/user.Controller');
+const { authenticate } = require('../../middleware/auth');
 
-// All user routes require authentication and admin_c role
-router.use(authenticate, authorize(USER_ROLES.ADMIN_C));
+const userRoutes = express();
+
+// All user routes require authentication
+userRoutes.use(authenticate);
 
 // User management routes
-router.get('/', UserController.getAllUsers);
-router.get('/stats', UserController.getUserStats);
-router.get('/:id', UserController.getUserById);
-router.put('/:id', UserController.updateUser);
+userRoutes.get('/', getAllUsers);
 
-module.exports = router;
+module.exports = userRoutes;

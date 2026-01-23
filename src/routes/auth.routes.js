@@ -75,17 +75,18 @@
 
 // src/routes/authRoutes.js
 const express = require('express');
-const router = express.Router();
-const AuthController = require('../controllers/auth.controller');
+const { register, login, getProfile, updateProfile } = require('../controllers/auth.controller');
 const { authenticate } = require('../../middleware/auth');
-const { registerValidationRules, loginValidationRules, validate } = require('../utils/validators');
+
+// In Express 5, router is not a separate function
+const authRoutes = express();
 
 // Public routes
-router.post('/register', registerValidationRules(), validate, AuthController.register);
-router.post('/login', loginValidationRules(), validate, AuthController.login);
+authRoutes.post('/register', register);
+authRoutes.post('/login', login);
 
 // Protected routes
-router.get('/profile', authenticate, AuthController.getProfile);
-router.put('/profile', authenticate, AuthController.updateProfile);
+authRoutes.get('/profile', authenticate, getProfile);
+authRoutes.put('/profile', authenticate, updateProfile);
 
-module.exports = router;
+module.exports = authRoutes;

@@ -12,7 +12,7 @@ const generateToken = (user) => {
       name: `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email
     },
     process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN }
+  { expiresIn: '24h' }
   );
 };
 
