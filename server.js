@@ -17,7 +17,6 @@ testConnection().then(isConnected => {
   }
 });
 
-// Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 
@@ -25,7 +24,7 @@ app.use('/api/users', userRoutes);
 app.get('/', (req, res) => {
   res.json({
     success: true,
-    message: 'APRCS Authentication API',
+    message: 'Al Huda Authentication API',
     endpoints: {
       auth: {
         register: 'POST /api/auth/register',
@@ -76,11 +75,11 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Start server
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`
-  🚀 APRCS Backend Server Started!
+  🚀 Al Huda Backend Server Started!
   ================================
   📍 Port: ${PORT}
   🌍 URL: http://localhost:${PORT}
