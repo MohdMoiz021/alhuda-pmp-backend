@@ -5,8 +5,6 @@ const { testConnection } = require('./db');
 
 const authRoutes = require('./src/routes/auth.routes');
 const userRoutes = require('./src/routes/user.routes');
-
-// Initialize app
 const app = express();
 
 // Middleware
