@@ -1,51 +1,66 @@
-// middleware/auth.js file
-const jwt = require('jsonwebtoken');
-const pool = require('../db');
+// src/middleware/auth.js
+const { verifyToken, extractToken } = require('../src/utils/auth');
+const { ERROR_MESSAGES, HTTP_STATUS } = require('../config/constant');
+const logger = require('../src/utils/logger');
 
-const authMiddleware = async (req, res, next) => {
+const authenticate = async (req, res, next) => {
   try {
-    const token = req.header('Authorization')?.replace('Bearer ', '');
-
+    const token = extractToken(req.header('Authorization'));
+    
     if (!token) {
-      return res.status(401).json({ 
-        message: 'Authentication token required' 
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+        success: false,
+        message: ERROR_MESSAGES.ACCESS_DENIED,
+        error: 'No token provided'
       });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = verifyToken(token);
     
-    // Verify user still exists and is active
-    const userResult = await pool.query(
-      "SELECT id, is_active FROM users WHERE id = $1",
-      [decoded.userId]
-    );
-
-    if (userResult.rows.length === 0 || !userResult.rows[0].is_active) {
-      return res.status(401).json({ 
-        message: 'User not found or account deactivated' 
+    if (!decoded) {
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+        success: false,
+        message: ERROR_MESSAGES.INVALID_TOKEN,
+        error: 'Invalid or expired token'
       });
     }
 
+    // Attach user to request
     req.user = decoded;
-    req.userId = decoded.userId;
     next();
-  } catch (err) {
-    if (err.name === 'TokenExpiredError') {
-      return res.status(401).json({ 
-        message: 'Token expired. Please login again.' 
-      });
-    }
-    
-    if (err.name === 'JsonWebTokenError') {
-      return res.status(401).json({ 
-        message: 'Invalid token' 
-      });
-    }
-
-    res.status(500).json({ 
-      message: 'Authentication error' 
+  } catch (error) {
+    logger.error('Authentication error', error);
+    return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+      success: false,
+      message: ERROR_MESSAGES.ACCESS_DENIED,
+      error: error.message
     });
   }
 };
 
-module.exports = authMiddleware;
+const authorize = (...allowedRoles) => {
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+        success: false,
+        message: ERROR_MESSAGES.ACCESS_DENIED,
+        error: 'User not authenticated'
+      });
+    }
+
+    if (!allowedRoles.includes(req.user.role)) {
+      return res.status(HTTP_STATUS.FORBIDDEN).json({
+        success: false,
+        message: ERROR_MESSAGES.ACCESS_DENIED,
+        error: `Required roles: ${allowedRoles.join(', ')}`
+      });
+    }
+
+    next();
+  };
+};
+
+module.exports = {
+  authenticate,
+  authorize
+};
