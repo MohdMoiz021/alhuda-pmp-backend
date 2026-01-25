@@ -75,7 +75,7 @@
 
 // src/routes/authRoutes.js
 const express = require('express');
-const { register, login, getProfile, updateProfile } = require('../controllers/auth.controller');
+const { register, login, getProfile, updateProfile, getAllUsers, getUserById } = require('../controllers/auth.controller');
 const { authenticate } = require('../../middleware/auth');
 
 // In Express 5, router is not a separate function
@@ -88,5 +88,6 @@ authRoutes.post('/login', login);
 // Protected routes
 authRoutes.get('/profile', authenticate, getProfile);
 authRoutes.put('/profile', authenticate, updateProfile);
-
+authRoutes.get('/users', authenticateToken, getAllUsers);
+authRoutes.get('/users/:id', authenticateToken, getUserById);
 module.exports = authRoutes;
