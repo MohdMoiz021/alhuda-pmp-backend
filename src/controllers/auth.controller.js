@@ -241,4 +241,109 @@ const updateProfile = async (req, res) => {
   }
 };
 
-module.exports = { register, login, getProfile, updateProfile };
+// src/controllers/authController.js
+
+// Get all users (Only for admin_c)
+const getAllUsers = async (req, res) => {
+  try {
+    // Check if the current user is admin_c
+    if (req.user.role !== 'admin_c') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Only admin_c can view all users.'
+      });
+    }
+
+    // Fetch all users with all fields except password_hash
+    const usersResult = await pool.query(
+      `SELECT 
+        id, 
+        email, 
+        first_name, 
+        last_name, 
+        phone, 
+        company_name, 
+        role, 
+        is_active,
+        created_at,
+        updated_at
+       FROM users 
+       ORDER BY created_at DESC`
+    );
+
+    res.json({
+      success: true,
+      count: usersResult.rows.length,
+      data: usersResult.rows
+    });
+
+  } catch (error) {
+    console.error('Get all users error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching users'
+    });
+  }
+};
+
+// Also add a more secure method for admin_c to view user details (optional)
+const getUserById = async (req, res) => {
+  try {
+    // Check if the current user is admin_c
+    if (req.user.role !== 'admin_c') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Only admin_c can view user details.'
+      });
+    }
+
+    const { id } = req.params;
+
+    // Fetch user by ID with all fields except password_hash
+    const userResult = await pool.query(
+      `SELECT 
+        id, 
+        email, 
+        first_name, 
+        last_name, 
+        phone, 
+        company_name, 
+        role, 
+        is_active,
+        created_at,
+        updated_at
+       FROM users 
+       WHERE id = $1`,
+      [id]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: userResult.rows[0]
+    });
+
+  } catch (error) {
+    console.error('Get user by ID error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching user details'
+    });
+  }
+};
+
+// Update module.exports at the end of the file
+module.exports = { 
+  register, 
+  login, 
+  getProfile, 
+  updateProfile, 
+  getAllUsers, 
+  getUserById 
+};
