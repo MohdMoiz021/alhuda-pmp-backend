@@ -66,6 +66,15 @@ app.use((req, res) => {
   });
 });
 
+app.get('/home', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Al Huda PMP Backend API',
+    version: '1.0.0',
+    status: 'running'
+  });
+});
+
 // Error handler
 app.use((err, req, res, next) => {
   console.error('Server error:', err);
