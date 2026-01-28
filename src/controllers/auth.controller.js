@@ -40,13 +40,18 @@ const register = async (req, res) => {
     // Hash password
     const hashedPassword = await hashPassword(password);
 
+    // Determine if user should be active based on role
+    // admin_a (Sub Consultant) = false by default, requires approval
+    // admin_b, admin_c = true by default
+    const is_active = role === 'admin_a' ? false : true;
+
     // Insert user into database
     const newUser = await pool.query(
       `INSERT INTO users 
-       (email, password_hash, first_name, last_name, phone, company_name, role) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7) 
+       (email, password_hash, first_name, last_name, phone, company_name, role, is_active) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
        RETURNING id, email, first_name, last_name, phone, company_name, role, is_active, created_at`,
-      [email, hashedPassword, first_name, last_name, phone, company_name, role]
+      [email, hashedPassword, first_name, last_name, phone, company_name, role, is_active]
     );
 
     // Generate JWT token
@@ -54,7 +59,9 @@ const register = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'User registered successfully',
+      message: role === 'admin_a' 
+        ? 'Sub Consultant application submitted successfully. Awaiting admin approval.' 
+        : 'User registered successfully',
       data: {
         user: newUser.rows[0],
         token
@@ -98,9 +105,17 @@ const login = async (req, res) => {
 
     const user = userResult.rows[0];
 
-    // Check if user is active
+    // For Sub Consultants (admin_a), check if account is approved
+    if (user.role === 'admin_a' && !user.is_active) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your Sub Consultant account is pending admin approval. Please wait for approval before logging in.'
+      });
+    }
+
+    // Check if user is active (for other roles)
     if (!user.is_active) {
-      return res.status(401).json({
+      return res.status(403).json({
         success: false,
         message: 'Account is deactivated. Contact administrator.'
       });
@@ -241,8 +256,6 @@ const updateProfile = async (req, res) => {
   }
 };
 
-// src/controllers/authController.js
-
 // Get all users (Only for admin_c)
 const getAllUsers = async (req, res) => {
   try {
@@ -286,7 +299,7 @@ const getAllUsers = async (req, res) => {
   }
 };
 
-// Also add a more secure method for admin_c to view user details (optional)
+// Get user by ID (Only for admin_c)
 const getUserById = async (req, res) => {
   try {
     // Check if the current user is admin_c
@@ -338,6 +351,164 @@ const getUserById = async (req, res) => {
   }
 };
 
+// Update user status (Approve/Deactivate - Only for admin_c)
+const updateUserStatus = async (req, res) => {
+  try {
+    // Check if the current user is admin_c
+    if (req.user.role !== 'admin_c') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Only admin_c can update user status.'
+      });
+    }
+
+    const { id } = req.params;
+    const { is_active } = req.body;
+
+    // Validate input
+    if (typeof is_active !== 'boolean') {
+      return res.status(400).json({
+        success: false,
+        message: 'is_active must be a boolean value'
+      });
+    }
+
+    // Check if user exists
+    const userCheck = await pool.query(
+      'SELECT id, role FROM users WHERE id = $1',
+      [id]
+    );
+
+    if (userCheck.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    const user = userCheck.rows[0];
+
+    // Update user status
+    const result = await pool.query(
+      `UPDATE users 
+       SET is_active = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2
+       RETURNING id, email, first_name, last_name, phone, company_name, role, is_active, updated_at`,
+      [is_active, id]
+    );
+
+    const action = is_active ? 'approved' : 'deactivated';
+    
+    res.json({
+      success: true,
+      message: `User ${action} successfully`,
+      data: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error('Update user status error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while updating user status'
+    });
+  }
+};
+
+// Get pending Sub Consultants (admin_a with is_active = false)
+const getPendingSubConsultants = async (req, res) => {
+  try {
+    // Check if the current user is admin_c
+    if (req.user.role !== 'admin_c') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Only admin_c can view pending applications.'
+      });
+    }
+
+    // Fetch pending Sub Consultants
+    const pendingUsers = await pool.query(
+      `SELECT 
+        id, 
+        email, 
+        first_name, 
+        last_name, 
+        phone, 
+        company_name, 
+        role, 
+        is_active,
+        created_at,
+        updated_at
+       FROM users 
+       WHERE role = 'admin_a' AND is_active = false
+       ORDER BY created_at DESC`
+    );
+
+    res.json({
+      success: true,
+      count: pendingUsers.rows.length,
+      data: pendingUsers.rows
+    });
+
+  } catch (error) {
+    console.error('Get pending sub consultants error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching pending applications'
+    });
+  }
+};
+
+// Delete user (Only for admin_c)
+const deleteUser = async (req, res) => {
+  try {
+    // Check if the current user is admin_c
+    if (req.user.role !== 'admin_c') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Only admin_c can delete users.'
+      });
+    }
+
+    const { id } = req.params;
+
+    // Check if user exists
+    const userCheck = await pool.query(
+      'SELECT id, role FROM users WHERE id = $1',
+      [id]
+    );
+
+    if (userCheck.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Prevent deleting yourself
+    if (parseInt(id) === req.user.id) {
+      return res.status(400).json({
+        success: false,
+        message: 'You cannot delete your own account'
+      });
+    }
+
+    // Delete user
+    await pool.query('DELETE FROM users WHERE id = $1', [id]);
+
+    res.json({
+      success: true,
+      message: 'User deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('Delete user error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while deleting user'
+    });
+  }
+};
+
 // Update module.exports at the end of the file
 module.exports = { 
   register, 
@@ -345,5 +516,8 @@ module.exports = {
   getProfile, 
   updateProfile, 
   getAllUsers, 
-  getUserById 
+  getUserById,
+  updateUserStatus,
+  getPendingSubConsultants,
+  deleteUser
 };
