@@ -23,7 +23,8 @@ async createCase(caseData) {
         
         // Prepare values with defaults
         const values = [
-            caseData.id || require('uuid').v4(),
+            // UUID instead of number
+            caseData.case_number || '',
             caseData.client_name || '',
             caseData.client_email || '',
             caseData.client_phone || '',
@@ -45,7 +46,7 @@ async createCase(caseData) {
             caseData.status || 'pending_review',
             caseData.priority || '',
             caseData.source || 'partner_portal',
-            caseData.submitted_by || '00000000-0000-0000-0000-000000000000',
+            caseData.submitted_by,
             caseData.submitted_by || '00000000-0000-0000-0000-000000000000', // created_by
             caseData.submitted_by || '00000000-0000-0000-0000-000000000000'  // updated_by
         ];

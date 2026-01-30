@@ -46,7 +46,7 @@ const caseStatusSchema = Joi.object({
     'pending_review', 'under_review', 'approved', 'rejected', 
     'in_progress', 'completed', 'cancelled'
   ).required(),
-  reviewed_by: Joi.string().uuid().optional()
+  reviewed_by: Joi.string().optional()
 });
 
 const validateCase = (req, res, next) => {

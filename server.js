@@ -64,6 +64,8 @@ app.get('/', (req, res) => {
 app.use('/api/cases', casesRoutes);
 
 
+
+
 // Test database route
 app.get('/api/test-db', async (req, res) => {
   try {
