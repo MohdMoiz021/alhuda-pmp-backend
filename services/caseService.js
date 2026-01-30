@@ -3,49 +3,83 @@ const db = require('../db');
 const { v4: uuidv4 } = require('uuid');
 
 class CaseService {
-  async createCase(caseData) {
-    const query = `
-      INSERT INTO cases (
-        id, client_name, client_email, client_phone,
-        company_name, company_location, established_date,
-        company_type, business_activity, company_size,
-        service_type, deal_value, deal_value_currency,
-        estimated_processing_time, preferred_bank,
-        description, additional_notes,
-        commission_percentage, commission_amount,
-        required_documents, submitted_by
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 
-                $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
-      RETURNING *;
-    `;
+// services/caseService.js
+async createCase(caseData) {
+    try {
+        console.log('Service received caseData:', caseData);
+        
+        // Check if caseData exists
+        if (!caseData) {
+            throw new Error('caseData is undefined');
+        }
+        
+        // Validate required fields
+        const requiredFields = ['client_name', 'client_email', 'client_phone', 'company_name', 'service_type', 'deal_value', 'description'];
+        for (const field of requiredFields) {
+            if (!caseData[field]) {
+                throw new Error(`Missing required field: ${field}`);
+            }
+        }
+        
+        // Prepare values with defaults
+        const values = [
+            caseData.id || require('uuid').v4(),
+            caseData.client_name || '',
+            caseData.client_email || '',
+            caseData.client_phone || '',
+            caseData.company_name || '',
+            caseData.company_location || '',
+            caseData.established_date || new Date().toISOString().split('T')[0],
+            caseData.company_type || '',
+            caseData.business_activity || '',
+            caseData.company_size || '',
+            caseData.service_type || 'account_opening',
+            parseFloat(caseData.deal_value) || 1000,
+            caseData.deal_value_currency || 'USD',
+            caseData.estimated_processing_time || '',
+            caseData.preferred_bank || '',
+            caseData.description || '',
+            caseData.additional_notes || caseData.notes || '',
+            parseFloat(caseData.commission_percentage) || 15.00,
+            caseData.commission_amount || null,
+            caseData.status || 'pending_review',
+            caseData.priority || '',
+            caseData.source || 'partner_portal',
+            caseData.submitted_by || '00000000-0000-0000-0000-000000000000',
+            caseData.submitted_by || '00000000-0000-0000-0000-000000000000', // created_by
+            caseData.submitted_by || '00000000-0000-0000-0000-000000000000'  // updated_by
+        ];
+        
+        console.log('SQL values:', values);
 
-    const values = [
-      uuidv4(),
-      caseData.client_name,
-      caseData.client_email,
-      caseData.client_phone,
-      caseData.company_name,
-      caseData.company_location,
-      caseData.established_date,
-      caseData.company_type,
-      caseData.business_activity,
-      caseData.company_size,
-      caseData.service_type,
-      caseData.deal_value,
-      caseData.deal_value_currency || 'USD',
-      caseData.estimated_processing_time,
-      caseData.preferred_bank,
-      caseData.description,
-      caseData.additional_notes,
-      caseData.commission_percentage || 15.00,
-      caseData.commission_amount,
-      JSON.stringify(caseData.required_documents || []),
-      caseData.submitted_by
-    ];
-
-    const result = await db.query(query, values);
-    return result.rows[0];
-  }
+        const query = `
+            INSERT INTO cases (
+                id, client_name, client_email, client_phone,
+                company_name, company_location, established_date,
+                company_type, business_activity, company_size,
+                service_type, deal_value, deal_value_currency,
+                estimated_processing_time, preferred_bank,
+                description, additional_notes,
+                commission_percentage, commission_amount,
+                status, priority, source,
+                submitted_by, created_by, updated_by
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                      $11, $12, $13, $14, $15, $16, $17, $18, $19,
+                      $20, $21, $22, $23, $24, $25)
+            RETURNING *;
+        `;
+        
+        console.log('Executing query...');
+        const result = await db.query(query, values);
+        console.log('Query result:', result.rows[0]);
+        
+        return result.rows[0];
+        
+    } catch (error) {
+        console.error('Service error:', error);
+        throw error;
+    }
+}
 
   async getAllCases(filters) {
     let query = 'SELECT * FROM cases WHERE 1=1';
