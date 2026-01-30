@@ -572,6 +572,9 @@ const path = require('path');
 const fs = require('fs');
 const router = express.Router();
 const db = require('../../db');
+const upload = require('../../middleware/upload.middleware');
+const { S3Client, GetObjectCommand } = require('@aws-sdk/client-s3');
+const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 
 // Configure multer to accept ANY field name
 const storage = multer.diskStorage({
@@ -588,11 +591,27 @@ const storage = multer.diskStorage({
   }
 });
 
-// Use .any() to accept all files regardless of field name
-const upload = multer({ 
-  storage: storage,
-  limits: { fileSize: 10 * 1024 * 1024 }
+const s3Client = new S3Client({
+  region: process.env.AWS_REGION,
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
+  }
 });
+
+async function generatePresignedUrl(s3Key, expiresIn = 3600) {
+  const command = new GetObjectCommand({
+    Bucket: process.env.S3_BUCKET_NAME,
+    Key: s3Key
+  });
+  return await getSignedUrl(s3Client, command, { expiresIn });
+}
+
+// Use .any() to accept all files regardless of field name
+// const upload = multer({ 
+//   storage: storage,
+//   limits: { fileSize: 10 * 1024 * 1024 }
+// });
 
 // POST endpoint - Create a new case
 router.post('/', upload.any(), async (req, res) => {
@@ -783,6 +802,243 @@ router.post('/', upload.any(), async (req, res) => {
   }
 });
 
+router.post('/', upload.array('documents', 5), async (req, res) => {
+  try {
+    console.log('Files received:', req.files?.length || 0);
+    console.log('Uploaded files info:', req.uploadedFiles || []);
+    console.log('Body fields:', Object.keys(req.body).length);
+
+    // All form fields are in req.body
+    const formData = req.body;
+    
+    // Handle uploaded files to S3
+    let document_paths = [];
+    let s3_documents = [];
+    
+    if (req.files && req.files.length > 0) {
+      // Generate presigned URLs for immediate access
+      s3_documents = await Promise.all(
+        (req.uploadedFiles || []).map(async (file) => {
+          const presignedUrl = await generatePresignedUrl(file.s3Key, 24 * 3600); // 24 hours
+          return {
+            originalName: file.originalName,
+            mimeType: file.mimeType,
+            size: file.size,
+            s3Key: file.s3Key,
+            bucket: file.bucket,
+            s3Url: file.url,
+            presignedUrl: presignedUrl,
+            uploadedAt: new Date().toISOString()
+          };
+        })
+      );
+      
+      document_paths = s3_documents.map(doc => doc.s3Key);
+      console.log('S3 Document paths:', document_paths);
+    }
+
+    // Extract all fields with default values
+    const {
+      client_name = '',
+      client_email = '',
+      client_phone = '',
+      company_name = '',
+      company_location = '',
+      established_date = null,
+      company_type = '',
+      business_activity = '',
+      company_size = '',
+      case_type = '',
+      deal_value = null,
+      description = '',
+      additional_notes = '',
+      preferred_bank = '',
+      timeline = '',
+      expected_closure = null,
+      deal_structure = '',
+      total_amount = null,
+      commission_percentage = 15.00,
+      commission_amount = null,
+      processing_fee = null,
+      processing_time = '',
+      priority = '',
+      payment_terms = '',
+      contact_method = '',
+      contact_time = '',
+      language = '',
+      submitted_by = '',
+      user_id = null,
+      partner_name = '',
+      partner_email = '',
+      submitted_at = new Date().toISOString(),
+      source = '',
+      commission_rate = null
+    } = formData;
+
+    // Parse numeric values
+    const parsedDealValue = deal_value ? parseFloat(deal_value) : null;
+    const parsedTotalAmount = total_amount ? parseFloat(total_amount) : null;
+    const parsedCommissionPercentage = commission_percentage ? parseFloat(commission_percentage) : 15.00;
+    const parsedCommissionAmount = commission_amount ? parseFloat(commission_amount) : null;
+    const parsedProcessingFee = processing_fee ? parseFloat(processing_fee) : null;
+    const parsedUserId = user_id ? parseInt(user_id) : null;
+    const parsedCommissionRate = commission_rate ? parseFloat(commission_rate) : null;
+
+    // Create case reference if not provided
+    const case_reference = req.body.case_reference || `CASE-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
+
+    // Check if we have the extended columns in the database
+    try {
+      const query = `
+        INSERT INTO case_updated (
+          client_name, client_email, client_phone, company_name,
+          company_location, established_date, company_type,
+          business_activity, company_size, case_type, deal_value,
+          description, additional_notes, preferred_bank, timeline,
+          expected_closure, deal_structure, total_amount,
+          commission_percentage, commission_amount, processing_fee,
+          processing_time, priority, payment_terms,
+          contact_method, contact_time, language,
+          document_paths, s3_documents, submitted_by, user_id,
+          partner_name, partner_email, submitted_at,
+          source, commission_rate, case_reference, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+          $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26,
+          $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38)
+        RETURNING *;
+      `;
+
+      const values = [
+        client_name, client_email, client_phone, company_name,
+        company_location, established_date || null, company_type,
+        business_activity, company_size, case_type, 
+        parsedDealValue, description, additional_notes, preferred_bank, 
+        timeline, expected_closure || null, deal_structure,
+        parsedTotalAmount, parsedCommissionPercentage, parsedCommissionAmount, 
+        parsedProcessingFee, processing_time, priority, payment_terms,
+        contact_method, contact_time, language,
+        JSON.stringify(document_paths), // Keep backward compatibility
+        JSON.stringify(s3_documents),   // New field with full S3 info
+        submitted_by, parsedUserId,
+        partner_name || null, partner_email || null, submitted_at,
+        source, parsedCommissionRate, case_reference,
+        new Date().toISOString(), // created_at
+        new Date().toISOString()  // updated_at
+      ];
+
+      const result = await db.query(query, values);
+      
+      res.status(201).json({
+        success: true,
+        message: 'Case created successfully',
+        data: {
+          ...result.rows[0],
+          // Include presigned URLs in response
+          documents: s3_documents.map(doc => ({
+            name: doc.originalName,
+            url: doc.presignedUrl,
+            size: doc.size,
+            type: doc.mimeType
+          }))
+        },
+        files_uploaded: s3_documents.length,
+        case_reference: case_reference
+      });
+
+    } catch (dbError) {
+      // If extended insert fails, try basic insert
+      console.log('Extended insert failed, trying basic:', dbError.message);
+      
+      const basicQuery = `
+        INSERT INTO case_updated (
+          client_name, client_email, client_phone, company_name,
+          company_location, established_date, company_type,
+          business_activity, company_size, case_type, deal_value,
+          description, additional_notes, preferred_bank, timeline,
+          expected_closure, deal_structure, total_amount,
+          commission_percentage, commission_amount, processing_fee,
+          processing_time, priority, payment_terms,
+          document_paths, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+          $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
+        RETURNING *;
+      `;
+
+      const basicValues = [
+        client_name, client_email, client_phone, company_name,
+        company_location, established_date || null, company_type,
+        business_activity, company_size, case_type, 
+        parsedDealValue, description, additional_notes, preferred_bank, 
+        timeline, expected_closure || null, deal_structure,
+        parsedTotalAmount, parsedCommissionPercentage, parsedCommissionAmount, 
+        parsedProcessingFee, processing_time, priority, payment_terms,
+        JSON.stringify(document_paths), // Store S3 paths
+        new Date().toISOString(), // created_at
+        new Date().toISOString()  // updated_at
+      ];
+
+      const result = await db.query(basicQuery, basicValues);
+      
+      // Store extra fields in additional_notes if needed
+      const extraFields = {
+        contact_method,
+        contact_time,
+        language,
+        s3_documents, // Store full S3 info here
+        submitted_by,
+        user_id: parsedUserId,
+        partner_name,
+        partner_email,
+        submitted_at,
+        source,
+        commission_rate: parsedCommissionRate,
+        case_reference
+      };
+      
+      // Update the record with extra info in additional_notes
+      if (Object.values(extraFields).some(val => val !== null && val !== '')) {
+        const extraNotes = `\n\nAdditional Data: ${JSON.stringify(extraFields, null, 2)}`;
+        const updateQuery = `
+          UPDATE case_updated 
+          SET additional_notes = COALESCE(additional_notes, '') || $1
+          WHERE id = $2
+        `;
+        await db.query(updateQuery, [extraNotes, result.rows[0].id]);
+      }
+
+      res.status(201).json({
+        success: true,
+        message: 'Case created successfully (using basic columns)',
+        data: result.rows[0],
+        documents: s3_documents.map(doc => ({
+          name: doc.originalName,
+          url: doc.presignedUrl,
+          size: doc.size,
+          type: doc.mimeType
+        })),
+        extra_data_stored: Object.keys(extraFields),
+        files_uploaded: s3_documents.length,
+        case_reference: case_reference
+      });
+    }
+
+  } catch (error) {
+    console.error('Error creating case:', error);
+    
+    // Clean up uploaded files if case creation fails
+    if (req.uploadedFiles && req.uploadedFiles.length > 0) {
+      console.log('Cleaning up uploaded files due to error...');
+      // You could implement cleanup logic here if needed
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create case',
+      error: error.message,
+      received_body_keys: Object.keys(req.body || {})
+    });
+  }
+});
 
 
 // GET endpoint - Get all cases

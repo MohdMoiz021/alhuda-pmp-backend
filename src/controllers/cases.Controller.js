@@ -61,7 +61,7 @@ async createCase(req, res, next) {
             'business_activity', 'company_size', 'estimated_processing_time',
             'preferred_bank', 'additional_notes', 'notes', 'deal_value_currency',
             'priority', 'source', 'commission_percentage', 'commission_amount',
-            'processing_fee', 'processing_time', 'payment_terms', 'contact_method',
+            'processing_fee', 'processing_time', 'payment_terms',
             'contact_time', 'language', 'timeline', 'expected_closure',
             'deal_structure', 'total_amount'
         ];
