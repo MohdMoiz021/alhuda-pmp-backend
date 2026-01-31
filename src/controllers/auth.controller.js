@@ -2,12 +2,9 @@
 const { pool } = require('../../db');
 const { generateToken, hashPassword, comparePassword } = require('../utils/auth');
 
-// Register (Signup) User
 const register = async (req, res) => {
   try {
     const { email, password, first_name, last_name, phone, company_name, role } = req.body;
-
-    // Basic validation
     if (!email || !password || !role) {
       return res.status(400).json({
         success: false,
@@ -33,16 +30,8 @@ const register = async (req, res) => {
         message: 'User already exists with this email'
       });
     }
-
-    // Hash password
     const hashedPassword = await hashPassword(password);
-
-    // Determine if user should be active based on role
-    // admin_a (Sub Consultant) = false by default, requires approval
-    // admin_b, admin_c = true by default
     const is_active = role === 'admin_a' ? false : true;
-
-    // Insert user into database
     const newUser = await pool.query(
       `INSERT INTO users 
        (email, password_hash, first_name, last_name, phone, company_name, role, is_active) 
@@ -51,7 +40,6 @@ const register = async (req, res) => {
       [email, hashedPassword, first_name, last_name, phone, company_name, role, is_active]
     );
 
-    // Generate JWT token
     const token = generateToken(newUser.rows[0]);
 
     res.status(201).json({
@@ -73,6 +61,8 @@ const register = async (req, res) => {
     });
   }
 };
+
+
 
 // Login User
 const login = async (req, res) => {
