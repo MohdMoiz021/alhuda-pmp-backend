@@ -15,7 +15,6 @@ const register = async (req, res) => {
       });
     }
 
-    // Check valid role
     const validRoles = ['admin_a', 'admin_b', 'admin_c'];
     if (!validRoles.includes(role)) {
       return res.status(400).json({
@@ -23,8 +22,6 @@ const register = async (req, res) => {
         message: 'Invalid role. Must be admin_a, admin_b, or admin_c'
       });
     }
-
-    // Check if user already exists
     const existingUser = await pool.query(
       'SELECT id FROM users WHERE email = $1',
       [email]
