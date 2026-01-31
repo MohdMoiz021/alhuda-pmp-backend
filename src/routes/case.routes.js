@@ -564,6 +564,41 @@ router.get('/:userId', async (req, res) => {
   }
 });
 
+router.get('/id/:id', async (req, res) => {
+  try {
+    const { id } = req.params; // ✅ lowercase
+
+    const query = `
+      SELECT *
+      FROM case_updated
+      WHERE id = $1
+      LIMIT 1;
+    `;
+
+    const result = await db.query(query, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Case not found'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: result.rows[0] // ✅ single object, not array
+    });
+
+  } catch (error) {
+    console.error('Error fetching case by id:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch case',
+      error: error.message
+    });
+  }
+});
+
 
 // Alternative: Get cases by submitted_by (string field)
 router.get('/by-submitter', async (req, res) => {
