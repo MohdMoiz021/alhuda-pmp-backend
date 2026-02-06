@@ -237,7 +237,138 @@ async function generatePresignedUrl(s3Key, expiresIn = 3600) {
 //   }
 // });
 
-router.post('/', upload.array('documents', 5), uploadToS3, async (req, res) => {
+// router.post('/', upload.array('documents', 5), uploadToS3, async (req, res) => {
+//   try {
+//     const formData = req.body;
+
+//     // Handle uploaded files
+//     let s3_documents = [];
+//     if (req.files && req.files.length > 0) {
+//       s3_documents = (req.uploadedFiles || []).map(file => ({
+//         originalName: file.originalName,
+//         mimeType: file.mimeType,
+//         size: file.size,
+//         s3Key: file.s3Key,
+//         bucket: file.bucket,
+//         url: `https://alhuda-crm.s3.me-central-1.amazonaws.com/${file.s3Key}`,
+//         uploadedAt: new Date().toISOString()
+//       }));
+//     }
+
+//     const document_paths = s3_documents.map(doc => doc.s3Key);
+
+//     const {
+//       client_name = '',
+//       client_email = '',
+//       client_phone = '',
+//       company_name = '',
+//       company_location = '',
+//       established_date = null,
+//       company_type = '',
+//       business_activity = '',
+//       company_size = '',
+//       case_type = '',
+//       deal_value = null,
+//       description = '',
+//       additional_notes = '',
+//       preferred_bank = '',
+//       timeline = '',
+//       expected_closure = null,
+//       deal_structure = '',
+//       total_amount = null,
+//       commission_percentage = '15.00',
+//       commission_amount = null,
+//       processing_fee = null,
+//       processing_time = '',
+//       priority = '',
+//       payment_terms = '',
+//       user_id = null,
+//       case_reference = null
+//     } = formData;
+
+//     // Generate case reference if not provided
+//     const generatedCaseRef = case_reference || `CASE-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
+
+//     const query = `
+//       INSERT INTO case_updated (
+//         client_name, client_email, client_phone, company_name,
+//         company_location, established_date, company_type,
+//         business_activity, company_size, case_type, deal_value,
+//         description, additional_notes, preferred_bank, timeline,
+//         expected_closure, deal_structure, total_amount,
+//         commission_percentage, commission_amount, processing_fee,
+//         processing_time, priority, payment_terms,
+//         document_paths, s3_documents, user_id, case_reference,
+//         created_at, updated_at
+//       ) VALUES (
+//         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
+//         $16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30
+//       )
+//       RETURNING *;
+//     `;
+
+//     const values = [
+//       client_name, client_email, client_phone, company_name,
+//       company_location, established_date, company_type,
+//       business_activity, company_size, case_type, deal_value,
+//       description, additional_notes, preferred_bank, timeline,
+//       expected_closure, deal_structure, total_amount,
+//       commission_percentage, commission_amount, processing_fee,
+//       processing_time, priority, payment_terms,
+//       JSON.stringify(document_paths),
+//       JSON.stringify(s3_documents),
+//       user_id ? parseInt(user_id) : null,
+//       generatedCaseRef,
+//       new Date().toISOString(),
+//       new Date().toISOString()
+//     ];
+
+//     const result = await db.query(query, values);
+
+//     res.status(201).json({
+//        success: true,
+//       id: result.rows[0].id,
+//       client_name: result.rows[0].client_name,
+//       client_email: result.rows[0].client_email,
+//       client_phone: result.rows[0].client_phone,
+//       company_name: result.rows[0].company_name,
+//       company_location: result.rows[0].company_location,
+//       established_date: result.rows[0].established_date,
+//       company_type: result.rows[0].company_type,
+//       business_activity: result.rows[0].business_activity,
+//       company_size: result.rows[0].company_size,
+//       case_type: result.rows[0].case_type,
+//       deal_value: result.rows[0].deal_value,
+//       description: result.rows[0].description,
+//       additional_notes: result.rows[0].additional_notes,
+//       preferred_bank: result.rows[0].preferred_bank,
+//       timeline: result.rows[0].timeline,
+//       expected_closure: result.rows[0].expected_closure,
+//       deal_structure: result.rows[0].deal_structure,
+//       total_amount: result.rows[0].total_amount,
+//       commission_percentage: result.rows[0].commission_percentage,
+//       commission_amount: result.rows[0].commission_amount,
+//       processing_fee: result.rows[0].processing_fee,
+//       processing_time: result.rows[0].processing_time,
+//       priority: result.rows[0].priority,
+//       payment_terms: result.rows[0].payment_terms,
+//       user_id: result.rows[0].user_id,
+//       s3_documents,
+//       case_reference: result.rows[0].case_reference,
+//       document_paths
+//     });
+
+//   } catch (error) {
+//     console.error('Error creating case:', error);
+//     res.status(500).json({
+//       success: false,
+//       message: 'Failed to create case',
+//       error: error.message
+//     });
+//   }
+// });
+
+router.post('/', upload.any(), uploadToS3, async (req, res) => {
   try {
     const formData = req.body;
 
@@ -251,111 +382,100 @@ router.post('/', upload.array('documents', 5), uploadToS3, async (req, res) => {
         s3Key: file.s3Key,
         bucket: file.bucket,
         url: `https://alhuda-crm.s3.me-central-1.amazonaws.com/${file.s3Key}`,
-        uploadedAt: new Date().toISOString()
+        uploadedAt: new Date().toISOString(),
+        document_type: file.fieldname // 'documents' or 'additional_documents'
       }));
     }
 
     const document_paths = s3_documents.map(doc => doc.s3Key);
 
+    // Extract only the fields from your UI form
     const {
-      client_name = '',
-      client_email = '',
-      client_phone = '',
-      company_name = '',
-      company_location = '',
-      established_date = null,
-      company_type = '',
-      business_activity = '',
-      company_size = '',
       case_type = '',
-      deal_value = null,
+      case_sub_type = '',
       description = '',
       additional_notes = '',
-      preferred_bank = '',
-      timeline = '',
-      expected_closure = null,
-      deal_structure = '',
-      total_amount = null,
-      commission_percentage = '15.00',
-      commission_amount = null,
-      processing_fee = null,
-      processing_time = '',
       priority = '',
-      payment_terms = '',
+      partner_name = '',
+      partner_email = '',
       user_id = null,
-      case_reference = null
+      source = 'web_portal'
     } = formData;
 
-    // Generate case reference if not provided
-    const generatedCaseRef = case_reference || `CASE-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
+    // Generate case reference
+    const case_reference = `CASE-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
+
+    // Group documents by type
+    const main_document = s3_documents.find(doc => doc.document_type === 'documents');
+    const additional_documents = s3_documents.filter(doc => doc.document_type === 'additional_documents');
 
     const query = `
       INSERT INTO case_updated (
-        client_name, client_email, client_phone, company_name,
-        company_location, established_date, company_type,
-        business_activity, company_size, case_type, deal_value,
-        description, additional_notes, preferred_bank, timeline,
-        expected_closure, deal_structure, total_amount,
-        commission_percentage, commission_amount, processing_fee,
-        processing_time, priority, payment_terms,
-        document_paths, s3_documents, user_id, case_reference,
-        created_at, updated_at
+        case_type, 
+        case_sub_type, 
+        description, 
+        additional_notes, 
+        priority,
+        partner_name,
+        partner_email,
+        document_paths, 
+        s3_documents, 
+        user_id, 
+        case_reference,
+        source,
+        main_document,
+        additional_documents,
+        created_at, 
+        updated_at
       ) VALUES (
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
-        $16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
       )
       RETURNING *;
     `;
 
     const values = [
-      client_name, client_email, client_phone, company_name,
-      company_location, established_date, company_type,
-      business_activity, company_size, case_type, deal_value,
-      description, additional_notes, preferred_bank, timeline,
-      expected_closure, deal_structure, total_amount,
-      commission_percentage, commission_amount, processing_fee,
-      processing_time, priority, payment_terms,
+      case_type,
+      case_sub_type,
+      description,
+      additional_notes,
+      priority,
+      partner_name,
+      partner_email,
       JSON.stringify(document_paths),
       JSON.stringify(s3_documents),
       user_id ? parseInt(user_id) : null,
-      generatedCaseRef,
+      case_reference,
+      source,
+      main_document ? JSON.stringify(main_document) : null,
+      additional_documents.length > 0 ? JSON.stringify(additional_documents) : null,
       new Date().toISOString(),
       new Date().toISOString()
     ];
 
     const result = await db.query(query, values);
+    
+    // Get the inserted row
+    const insertedCase = result.rows[0];
 
     res.status(201).json({
-       success: true,
-      id: result.rows[0].id,
-      client_name: result.rows[0].client_name,
-      client_email: result.rows[0].client_email,
-      client_phone: result.rows[0].client_phone,
-      company_name: result.rows[0].company_name,
-      company_location: result.rows[0].company_location,
-      established_date: result.rows[0].established_date,
-      company_type: result.rows[0].company_type,
-      business_activity: result.rows[0].business_activity,
-      company_size: result.rows[0].company_size,
-      case_type: result.rows[0].case_type,
-      deal_value: result.rows[0].deal_value,
-      description: result.rows[0].description,
-      additional_notes: result.rows[0].additional_notes,
-      preferred_bank: result.rows[0].preferred_bank,
-      timeline: result.rows[0].timeline,
-      expected_closure: result.rows[0].expected_closure,
-      deal_structure: result.rows[0].deal_structure,
-      total_amount: result.rows[0].total_amount,
-      commission_percentage: result.rows[0].commission_percentage,
-      commission_amount: result.rows[0].commission_amount,
-      processing_fee: result.rows[0].processing_fee,
-      processing_time: result.rows[0].processing_time,
-      priority: result.rows[0].priority,
-      payment_terms: result.rows[0].payment_terms,
-      user_id: result.rows[0].user_id,
-      s3_documents,
-      case_reference: result.rows[0].case_reference,
-      document_paths
+      success: true,
+      data: {
+        id: insertedCase.id,
+        case_type: insertedCase.case_type,
+        case_sub_type: insertedCase.case_sub_type,
+        description: insertedCase.description,
+        additional_notes: insertedCase.additional_notes,
+        priority: insertedCase.priority,
+        partner_name: insertedCase.partner_name,
+        partner_email: insertedCase.partner_email,
+        case_reference: insertedCase.case_reference,
+        documents: {
+          main: main_document || null,
+          additional: additional_documents
+        },
+        uploaded_at: insertedCase.created_at,
+        status: 'submitted'
+      }
     });
 
   } catch (error) {
@@ -367,8 +487,6 @@ router.post('/', upload.array('documents', 5), uploadToS3, async (req, res) => {
     });
   }
 });
-
-
 
 // GET endpoint - Get all cases
 router.get('/', async (req, res) => {
