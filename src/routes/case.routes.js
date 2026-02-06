@@ -682,7 +682,7 @@ router.get('/:userId', async (req, res) => {
   }
 });
 
-router.get('/id/:id', async (req, res) => {
+router.get('/details/:id', async (req, res) => {
   try {
     const { id } = req.params; // ✅ lowercase
 
