@@ -10,6 +10,7 @@ const db = require('../../db');
 const { upload, uploadToS3 } = require('../../middleware/upload.middleware');
 const { S3Client, GetObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
+const { authenticate } = require('../../middleware/auth');
 
 // Configure multer to accept ANY field name
 const storage = multer.diskStorage({
@@ -41,6 +42,82 @@ async function generatePresignedUrl(s3Key, expiresIn = 3600) {
   });
   return await getSignedUrl(s3Client, command, { expiresIn });
 }
+
+router.patch('/:caseId/status', async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const { status, remarks = '', updated_by = null } = req.body;
+
+    // Validate status
+    if (!['pending', 'approved', 'rejected'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid status value'
+      });
+    }
+
+    // Check if case exists
+    const caseCheck = await db.query(
+      'SELECT * FROM case_updated WHERE id = $1',
+      [caseId]
+    );
+
+    if (!caseCheck.rows.length) {
+      return res.status(404).json({
+        success: false,
+        message: 'Case not found'
+      });
+    }
+
+    // 1️⃣ Update the main case status
+    const updatedCase = await db.query(
+      `
+      UPDATE case_updated
+      SET status = $1,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $2
+      RETURNING *;
+      `,
+      [status, caseId]
+    );
+
+    // 2️⃣ Insert or update remarks in case_status table
+    const statusResult = await db.query(
+      `
+      INSERT INTO case_status (case_id, status, remarks, updated_by)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (case_id)
+      DO UPDATE SET
+        status = EXCLUDED.status,
+        remarks = EXCLUDED.remarks,
+        updated_by = EXCLUDED.updated_by,
+        updated_at = CURRENT_TIMESTAMP
+      RETURNING *;
+      `,
+      [caseId, status, remarks, updated_by]
+    );
+
+    res.json({
+      success: true,
+      message: `Case ${status} successfully`,
+      data: {
+        case: updatedCase.rows[0],
+        case_status: statusResult.rows[0]
+      }
+    });
+
+  } catch (error) {
+    console.error('Update status error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update case status',
+      error: error.message
+    });
+  }
+});
+
+
+
 
 // Use .any() to accept all files regardless of field name
 // const upload = multer({ 
@@ -383,13 +460,12 @@ router.post('/', upload.any(), uploadToS3, async (req, res) => {
         bucket: file.bucket,
         url: `https://alhuda-crm.s3.me-central-1.amazonaws.com/${file.s3Key}`,
         uploadedAt: new Date().toISOString(),
-        document_type: file.fieldname // 'documents' or 'additional_documents'
+        document_type: file.fieldname
       }));
     }
 
     const document_paths = s3_documents.map(doc => doc.s3Key);
 
-    // Extract only the fields from your UI form
     const {
       case_type = '',
       case_sub_type = '',
@@ -402,33 +478,40 @@ router.post('/', upload.any(), uploadToS3, async (req, res) => {
       source = 'web_portal'
     } = formData;
 
-    // Generate case reference
-    const case_reference = `CASE-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
+    const case_reference = `CASE-${Date.now()}-${Math.random()
+      .toString(36)
+      .substr(2, 6)
+      .toUpperCase()}`;
 
-    // Group documents by type
-    const main_document = s3_documents.find(doc => doc.document_type === 'documents');
-    const additional_documents = s3_documents.filter(doc => doc.document_type === 'additional_documents');
+    const main_document = s3_documents.find(
+      doc => doc.document_type === 'documents'
+    );
+
+    const additional_documents = s3_documents.filter(
+      doc => doc.document_type === 'additional_documents'
+    );
 
     const query = `
       INSERT INTO case_updated (
-        case_type, 
-        case_sub_type, 
-        description, 
-        additional_notes, 
+        case_type,
+        case_sub_type,
+        description,
+        additional_notes,
         priority,
         partner_name,
         partner_email,
-        document_paths, 
-        s3_documents, 
-        user_id, 
+        document_paths,
+        s3_documents,
+        user_id,
         case_reference,
         source,
         main_document,
         additional_documents,
-        created_at, 
+        status,
+        created_at,
         updated_at
       ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17
       )
       RETURNING *;
     `;
@@ -447,14 +530,15 @@ router.post('/', upload.any(), uploadToS3, async (req, res) => {
       case_reference,
       source,
       main_document ? JSON.stringify(main_document) : null,
-      additional_documents.length > 0 ? JSON.stringify(additional_documents) : null,
-      new Date().toISOString(),
-      new Date().toISOString()
+      additional_documents.length > 0
+        ? JSON.stringify(additional_documents)
+        : null,
+      'pending', // ✅ DEFAULT STATUS
+      new Date(),
+      new Date()
     ];
 
     const result = await db.query(query, values);
-    
-    // Get the inserted row
     const insertedCase = result.rows[0];
 
     res.status(201).json({
@@ -469,12 +553,12 @@ router.post('/', upload.any(), uploadToS3, async (req, res) => {
         partner_name: insertedCase.partner_name,
         partner_email: insertedCase.partner_email,
         case_reference: insertedCase.case_reference,
+        status: insertedCase.status, // ✅ pending
         documents: {
           main: main_document || null,
           additional: additional_documents
         },
-        uploaded_at: insertedCase.created_at,
-        status: 'submitted'
+        uploaded_at: insertedCase.created_at
       }
     });
 
@@ -487,6 +571,7 @@ router.post('/', upload.any(), uploadToS3, async (req, res) => {
     });
   }
 });
+
 
 // GET endpoint - Get all cases
 router.get('/', async (req, res) => {
@@ -508,6 +593,119 @@ router.get('/', async (req, res) => {
     });
   }
 });
+
+router.get('/pending', async (req, res) => {
+  try {
+    const query = `
+      SELECT *
+      FROM case_updated
+      WHERE status = 'pending'
+      ORDER BY created_at DESC
+    `;
+
+    const result = await db.query(query);
+
+    res.status(200).json({
+      success: true,
+      count: result.rowCount,
+      data: result.rows
+    });
+
+  } catch (error) {
+    console.error('Error fetching pending cases:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch pending cases',
+      error: error.message
+    });
+  }
+});
+
+
+router.get('/approved', async (req, res) => {
+  try {
+    const query = `
+        SELECT
+        c.id,
+        c.case_reference,
+        c.case_type,
+        c.case_sub_type,
+        c.description,
+        c.priority,
+        c.partner_name,
+        c.partner_email,
+        c.status,
+        cs.remarks,
+        c.created_at,
+        c.updated_at,
+        c.main_document,
+        c.additional_documents
+      FROM case_updated c
+      LEFT JOIN case_status cs ON cs.case_id = c.id
+      WHERE c.status = 'approved'
+      ORDER BY c.updated_at DESC
+    `;
+
+    const result = await db.query(query);
+
+    res.status(200).json({
+      success: true,
+      count: result.rowCount,
+      data: result.rows
+    });
+
+  } catch (error) {
+    console.error('Error fetching approved cases:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch approved cases',
+      error: error.message
+    });
+  }
+});
+
+router.get('/rejected', async (req, res) => {
+  try {
+    const query = `
+      SELECT
+        c.id,
+        c.case_reference,
+        c.case_type,
+        c.case_sub_type,
+        c.description,
+        c.priority,
+        c.partner_name,
+        c.partner_email,
+        c.status,
+        cs.remarks,
+        c.created_at,
+        c.updated_at
+      FROM case_updated c
+      LEFT JOIN case_status cs ON cs.case_id = c.id
+      WHERE c.status = 'rejected'
+      ORDER BY c.updated_at DESC
+    `;
+
+    const result = await db.query(query);
+
+    res.status(200).json({
+      success: true,
+      count: result.rowCount,
+      data: result.rows
+    });
+
+  } catch (error) {
+    console.error('Error fetching rejected cases:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch rejected cases',
+      error: error.message
+    });
+  }
+});
+
+
+
 
 
 
@@ -680,6 +878,253 @@ router.get('/:userId', async (req, res) => {
       error: error.message
     });
   }
+});
+
+router.put('/:id/approve', authenticate, async (req, res) => {
+    try {
+        const caseId = req.params.id;
+        const { notes } = req.body;
+        const userId = req.user?.id || req.user?.user_id; // Try different property names
+
+        // 1. First check if case exists
+        const caseCheck = await db.query(
+            `SELECT id, current_status FROM case_updated WHERE id = $1`,
+            [caseId]
+        );
+
+        if (caseCheck.rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'Case not found'
+            });
+        }
+
+        const currentCase = caseCheck.rows[0];
+        
+        // Optional: Check if case is already approved
+        if (currentCase.current_status === 'approved') {
+            return res.status(400).json({
+                success: false,
+                message: 'Case is already approved'
+            });
+        }
+
+        // 2. Update cases table status
+        await db.query(
+            `UPDATE case_updated SET 
+                current_status = 'approved',
+                updated_at = CURRENT_TIMESTAMP 
+             WHERE id = $1`,
+            [caseId]
+        );
+
+        // 3. Log the action
+        await db.query(
+            `INSERT INTO case_actions (case_id, action, notes, user_id)
+             VALUES ($1, 'approve', $2, $3)`,
+            [caseId, notes || 'Case approved', userId]
+        );
+
+        // 4. Get updated case data
+        const updatedCase = await db.query(
+            `SELECT c.*, u.name as partner_name, u.email as partner_email
+             FROM case_updated c
+             LEFT JOIN users u ON c.user_id = u.id
+             WHERE c.id = $1`,
+            [caseId]
+        );
+
+        res.json({
+            success: true,
+            message: 'Case approved successfully',
+            data: updatedCase.rows[0]
+        });
+
+    } catch (error) {
+        console.error('Error approving case:', error);
+        
+        // More specific error messages
+        if (error.code === '23503') { // Foreign key violation
+            return res.status(404).json({
+                success: false,
+                message: 'Case not found or invalid case ID'
+            });
+        }
+        
+        res.status(500).json({
+            success: false,
+            message: 'Server error while approving case',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+});
+
+// =============== REJECT CASE ===============
+router.put('/:id/reject', authenticate, async (req, res) => {
+    try {
+        const caseId = req.params.id;
+        const { reason, notes } = req.body;
+        const userId = req.user.id;
+
+        // Validate required fields
+        if (!reason) {
+            return res.status(400).json({
+                success: false,
+                message: 'Reason is required for rejection'
+            });
+        }
+
+        // 1. Update cases table status
+        await db.query(
+            `UPDATE cases SET current_status = 'rejected' WHERE id = $1`,
+            [caseId]
+        );
+
+        // 2. Log the action
+        await db.query(
+            `INSERT INTO case_actions (case_id, action, reason, notes, user_id)
+             VALUES ($1, 'reject', $2, $3, $4)`,
+            [caseId, reason, notes || '', userId]
+        );
+
+        res.json({
+            success: true,
+            message: 'Case rejected successfully'
+        });
+
+    } catch (error) {
+        console.error('Error rejecting case:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error'
+        });
+    }
+});
+
+// =============== GET PENDING CASES ===============
+router.get('/pending', authenticate, async (req, res) => {
+    try {
+        const pendingCases = await db.query(
+            `SELECT c.*, u.name as partner_name, u.email as partner_email
+             FROM cases c
+             LEFT JOIN users u ON c.user_id = u.id
+             WHERE c.current_status = 'submitted' OR c.current_status = 'pending_review'
+             ORDER BY c.created_at DESC`
+        );
+
+        res.json({
+            success: true,
+            data: pendingCases.rows
+        });
+
+    } catch (error) {
+        console.error('Error fetching pending cases:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error'
+        });
+    }
+});
+
+// =============== GET REJECTED CASES ===============
+router.get('/rejected', authenticate, async (req, res) => {
+    try {
+        const rejectedCases = await db.query(
+            `SELECT 
+                c.*, 
+                u.name as partner_name, 
+                u.email as partner_email,
+                ca.reason as rejection_reason,
+                ca.notes as rejection_notes,
+                ca.created_at as rejected_at,
+                au.name as rejected_by
+             FROM cases c
+             LEFT JOIN users u ON c.user_id = u.id
+             LEFT JOIN case_actions ca ON c.id = ca.case_id AND ca.action = 'reject'
+             LEFT JOIN users au ON ca.user_id = au.id
+             WHERE c.current_status = 'rejected'
+             ORDER BY ca.created_at DESC`
+        );
+
+        res.json({
+            success: true,
+            data: rejectedCases.rows
+        });
+
+    } catch (error) {
+        console.error('Error fetching rejected cases:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error'
+        });
+    }
+});
+
+// =============== GET CASE HISTORY ===============
+router.get('/:id/history', authenticate, async (req, res) => {
+    try {
+        const caseId = req.params.id;
+
+        const history = await db.query(
+            `SELECT 
+                ca.*,
+                u.name as user_name,
+                u.email as user_email,
+                u.role as user_role
+             FROM case_actions ca
+             LEFT JOIN users u ON ca.user_id = u.id
+             WHERE ca.case_id = $1
+             ORDER BY ca.created_at DESC`,
+            [caseId]
+        );
+
+        res.json({
+            success: true,
+            data: history.rows
+        });
+
+    } catch (error) {
+        console.error('Error fetching case history:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error'
+        });
+    }
+});
+
+// =============== REOPEN REJECTED CASE ===============
+router.put('/:id/reopen', authenticate, async (req, res) => {
+    try {
+        const caseId = req.params.id;
+        const userId = req.user.id;
+
+        // 1. Update cases table status
+        await db.query(
+            `UPDATE cases 
+             SET current_status = 'pending_review' 
+             WHERE id = $1 AND current_status = 'rejected'`,
+            [caseId]
+        );
+
+        // 2. Log the reopen action
+        await db.query(
+            `INSERT INTO case_actions (case_id, action, notes, user_id)
+             VALUES ($1, 'reopen', 'Case reopened for review', $2)`,
+            [caseId, userId]
+        );
+
+        res.json({
+            success: true,
+            message: 'Case reopened successfully'
+        });
+
+    } catch (error) {
+        console.error('Error reopening case:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error'
+        });
+    }
 });
 
 router.get('/details/:id', async (req, res) => {
