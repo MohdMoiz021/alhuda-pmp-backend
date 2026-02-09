@@ -594,13 +594,18 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.get('/pending', async (req, res) => {
+router.get('/allcases', async (req, res) => {
   try {
     const query = `
-      SELECT *
-      FROM case_updated
-      WHERE status = 'pending'
-      ORDER BY created_at DESC
+      SELECT
+        c.*,                        
+        cs.status,
+        cs.remarks,
+        cs.updated_at AS status_updated_at
+      FROM case_updated c
+      LEFT JOIN case_status cs
+        ON cs.case_id = c.id
+      ORDER BY c.created_at DESC
     `;
 
     const result = await db.query(query);
@@ -617,6 +622,35 @@ router.get('/pending', async (req, res) => {
       success: false,
       message: 'Failed to fetch pending cases',
       error: error.message
+    });
+  }
+});
+
+
+
+
+router.get('/pending', async (req, res) => {
+  try {
+    const query = `
+      SELECT *
+      FROM case_updated
+      WHERE status = 'pending'
+      ORDER BY created_at DESC
+    `;
+
+    const result = await db.query(query);
+
+    res.json({
+      success: true,
+      count: result.rowCount,
+      data: result.rows
+    });
+
+  } catch (error) {
+    console.error('Error fetching pending cases:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
     });
   }
 });
@@ -1002,29 +1036,7 @@ router.put('/:id/reject', authenticate, async (req, res) => {
 });
 
 // =============== GET PENDING CASES ===============
-router.get('/pending', authenticate, async (req, res) => {
-    try {
-        const pendingCases = await db.query(
-            `SELECT c.*, u.name as partner_name, u.email as partner_email
-             FROM cases c
-             LEFT JOIN users u ON c.user_id = u.id
-             WHERE c.current_status = 'submitted' OR c.current_status = 'pending_review'
-             ORDER BY c.created_at DESC`
-        );
 
-        res.json({
-            success: true,
-            data: pendingCases.rows
-        });
-
-    } catch (error) {
-        console.error('Error fetching pending cases:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Server error'
-        });
-    }
-});
 
 // =============== GET REJECTED CASES ===============
 router.get('/rejected', authenticate, async (req, res) => {
