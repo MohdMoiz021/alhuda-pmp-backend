@@ -81,6 +81,79 @@ userRoutes.get('/:userId/phone', async (req, res) => {
   }
 });
 
+
+userRoutes.get('/internalteam', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'User ID is required'
+      });
+    }
+
+    const query = `
+      SELECT id, email, first_name, last_name, phone, company_name, role, is_active
+      FROM users
+      WHERE id = $1
+    `;
+    const result = await db.query(query, [userId]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    const user = result.rows[0];
+
+    // Check if user has phone number
+    if (!user.phone) {
+      return res.status(404).json({
+        success: false,
+        message: 'User has no phone number on record',
+        user: {
+          id: user.id,
+          email: user.email,
+          name: `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email
+        }
+      });
+    }
+
+    // Format name
+    const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email;
+    
+    // Format phone for WhatsApp
+    const formattedPhone = formatPhoneForWhatsApp(user.phone);
+
+    res.json({
+      success: true,
+      userId: user.id,
+      email: user.email,
+      firstName: user.first_name,
+      lastName: user.last_name,
+      name: fullName,
+      companyName: user.company_name,
+      phoneNumber: user.phone,
+      formattedPhone: formattedPhone,
+      whatsappFormat: `whatsapp:${formattedPhone}`,
+      role: user.role,
+      isActive: user.is_active
+    });
+
+  } catch (error) {
+    console.error('Error fetching user phone:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch user phone',
+      error: error.message
+    });
+  }
+});
+
+
 /**
  * Update user phone number
  * PUT /api/users/:userId/phone

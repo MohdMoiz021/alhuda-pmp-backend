@@ -117,6 +117,491 @@ router.patch('/:caseId/status', async (req, res) => {
 });
 
 
+router.get('/:caseId/assignees', authenticate, async (req, res) => {
+  try {
+    const { caseId } = req.params;
+
+    const query = `
+      SELECT 
+        c.assigned_to,
+        c.assigned_name,
+        c.assigned_role,
+        c.assigned_at,
+        u.email,
+        u.first_name,
+        u.last_name
+      FROM cases c
+      LEFT JOIN users u ON c.assigned_to = u.id
+      WHERE c.id = $1
+    `;
+
+    const result = await db.query(query, [caseId]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Case not found'
+      });
+    }
+
+    const assignee = result.rows[0];
+    
+    res.json({
+      success: true,
+      assignee: assignee.assigned_to ? {
+        id: assignee.assigned_to,
+        name: assignee.assigned_name,
+        role: assignee.assigned_role,
+        email: assignee.email,
+        firstName: assignee.first_name,
+        lastName: assignee.last_name,
+        assignedAt: assignee.assigned_at
+      } : null
+    });
+
+  } catch (error) {
+    console.error('Error fetching assignee:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch assignee',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/cases/:caseId/assign
+ * Assign a case to a team member
+ */
+router.post('/:caseId/assign', authenticate, async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const { assigned_to, assigned_name, assigned_role } = req.body;
+    const assigned_by = req.user.id; // From auth middleware
+
+    // Validate input
+    if (!assigned_to) {
+      return res.status(400).json({
+        success: false,
+        message: 'assigned_to (user ID) is required'
+      });
+    }
+
+    // Start transaction for data consistency
+    await db.query('BEGIN');
+
+    // Update the case with new assignment
+    const updateQuery = `
+      UPDATE case_updated 
+      SET 
+        assigned_to = $1,
+        assigned_name = $2,
+        assigned_role = $3,
+        assigned_at = NOW(),
+        updated_at = NOW()
+      WHERE id = $4
+      RETURNING 
+        id,
+        case_reference,
+        assigned_to,
+        assigned_name,
+        assigned_role,
+        assigned_at,
+        partner_name,
+        status
+    `;
+
+    const updateResult = await db.query(updateQuery, [
+      assigned_to, 
+      assigned_name || null, 
+      assigned_role || null, 
+      caseId
+    ]);
+
+    if (updateResult.rows.length === 0) {
+      await db.query('ROLLBACK');
+      return res.status(404).json({
+        success: false,
+        message: 'Case not found'
+      });
+    }
+
+    const updatedCase = updateResult.rows[0];
+
+    // Optional: Log assignment in activity log
+    const logQuery = `
+      INSERT INTO case_activity_log (
+        case_id,
+        user_id,
+        action,
+        details,
+        created_at
+      ) VALUES ($1, $2, $3, $4, NOW())
+    `;
+
+    await db.query(logQuery, [
+      caseId,
+      assigned_by,
+      'ASSIGNED',
+      JSON.stringify({
+        assigned_to,
+        assigned_name,
+        assigned_role,
+        previous_assignee: null // You could fetch previous if needed
+      })
+    ]);
+
+    await db.query('COMMIT');
+
+    res.json({
+      success: true,
+      message: `Case assigned to ${assigned_name || 'team member'} successfully`,
+      case: {
+        id: updatedCase.id,
+        case_reference: updatedCase.case_reference,
+        assigned_to: updatedCase.assigned_to,
+        assigned_name: updatedCase.assigned_name,
+        assigned_role: updatedCase.assigned_role,
+        assigned_at: updatedCase.assigned_at,
+        partner_name: updatedCase.partner_name,
+        status: updatedCase.status
+      }
+    });
+
+  } catch (error) {
+    await db.query('ROLLBACK');
+    console.error('Error assigning case:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to assign case',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * PUT /api/cases/:caseId/assign
+ * Reassign a case to a different team member
+ */
+router.put('/:caseId/assign', authenticate, async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const { assigned_to, assigned_name, assigned_role } = req.body;
+    const reassigned_by = req.user.id;
+
+    if (!assigned_to) {
+      return res.status(400).json({
+        success: false,
+        message: 'assigned_to (user ID) is required'
+      });
+    }
+
+    await db.query('BEGIN');
+
+    // Get current assignment for logging
+    const currentQuery = 'SELECT assigned_to, assigned_name FROM case_updated WHERE id = $1';
+    const currentResult = await db.query(currentQuery, [caseId]);
+    const previousAssignee = currentResult.rows[0];
+
+    // Update assignment
+    const updateQuery = `
+      UPDATE case_updated
+      SET 
+        assigned_to = $1,
+        assigned_name = $2,
+        assigned_role = $3,
+        assigned_at = NOW(),
+        updated_at = NOW()
+      WHERE id = $4
+      RETURNING *
+    `;
+
+    const updateResult = await db.query(updateQuery, [
+      assigned_to, 
+      assigned_name, 
+      assigned_role, 
+      caseId
+    ]);
+
+    if (updateResult.rows.length === 0) {
+      await db.query('ROLLBACK');
+      return res.status(404).json({
+        success: false,
+        message: 'Case not found'
+      });
+    }
+
+    // Log reassignment
+    const logQuery = `
+      INSERT INTO case_activity_log (
+        case_id,
+        user_id,
+        action,
+        details,
+        created_at
+      ) VALUES ($1, $2, $3, $4, NOW())
+    `;
+
+    await db.query(logQuery, [
+      caseId,
+      reassigned_by,
+      'REASSIGNED',
+      JSON.stringify({
+        from: previousAssignee,
+        to: { id: assigned_to, name: assigned_name, role: assigned_role }
+      })
+    ]);
+
+    await db.query('COMMIT');
+
+    res.json({
+      success: true,
+      message: 'Case reassigned successfully',
+      case: updateResult.rows[0]
+    });
+
+  } catch (error) {
+    await db.query('ROLLBACK');
+    console.error('Error reassigning case:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to reassign case',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * DELETE /api/cases/:caseId/assign
+ * Unassign a case (remove assignment)
+ */
+router.delete('/:caseId/assign', authenticate, async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const unassigned_by = req.user.id;
+
+    await db.query('BEGIN');
+
+    // Get current assignment for logging
+    const currentQuery = 'SELECT assigned_to, assigned_name FROM case_updated WHERE id = $1';
+    const currentResult = await db.query(currentQuery, [caseId]);
+    const previousAssignee = currentResult.rows[0];
+
+    // Remove assignment
+    const updateQuery = `
+      UPDATE case_updated
+      SET 
+        assigned_to = NULL,
+        assigned_name = NULL,
+        assigned_role = NULL,
+        assigned_at = NULL,
+        updated_at = NOW()
+      WHERE id = $1
+      RETURNING *
+    `;
+
+    const updateResult = await db.query(updateQuery, [caseId]);
+
+    if (updateResult.rows.length === 0) {
+      await db.query('ROLLBACK');
+      return res.status(404).json({
+        success: false,
+        message: 'Case not found'
+      });
+    }
+
+    // Log unassignment
+    const logQuery = `
+      INSERT INTO case_activity_log (
+        case_id,
+        user_id,
+        action,
+        details,
+        created_at
+      ) VALUES ($1, $2, $3, $4, NOW())
+    `;
+
+    await db.query(logQuery, [
+      caseId,
+      unassigned_by,
+      'UNASSIGNED',
+      JSON.stringify(previousAssignee)
+    ]);
+
+    await db.query('COMMIT');
+
+    res.json({
+      success: true,
+      message: 'Case unassigned successfully',
+      case: updateResult.rows[0]
+    });
+
+  } catch (error) {
+    await db.query('ROLLBACK');
+    console.error('Error unassigning case:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to unassign case',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/cases/assigned-to/:userId
+ * Get all cases assigned to a specific team member
+ */
+router.get('/assigned-to/:userId', authenticate, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { status, priority, limit = 50, offset = 0 } = req.query;
+
+    let query = `
+      SELECT 
+        id,
+        case_reference,
+        partner_name,
+        partner_email,
+        case_type,
+        case_sub_type,
+        priority,
+        status,
+        assigned_at,
+        created_at,
+        updated_at
+      FROM case_updated
+      WHERE assigned_to = $1
+    `;
+
+    const queryParams = [userId];
+    let paramIndex = 2;
+
+    // Add optional filters
+    if (status) {
+      query += ` AND status = $${paramIndex}`;
+      queryParams.push(status);
+      paramIndex++;
+    }
+
+    if (priority) {
+      query += ` AND priority = $${paramIndex}`;
+      queryParams.push(priority);
+      paramIndex++;
+    }
+
+    // Add sorting and pagination
+    query += ` ORDER BY assigned_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    queryParams.push(limit, offset);
+
+    const result = await db.query(query, queryParams);
+
+    // Get total count for pagination
+    const countQuery = 'SELECT COUNT(*) FROM case_updated WHERE assigned_to = $1';
+    const countResult = await db.query(countQuery, [userId]);
+
+    res.json({
+      success: true,
+      cases: result.rows,
+      pagination: {
+        total: parseInt(countResult.rows[0].count),
+        limit: parseInt(limit),
+        offset: parseInt(offset)
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching assigned cases:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch assigned cases',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/cases/unassigned
+ * Get all unassigned cases
+ */
+router.get('/unassigned/all', authenticate, async (req, res) => {
+  try {
+    const { limit = 50, offset = 0 } = req.query;
+
+    const query = `
+      SELECT 
+        id,
+        case_reference,
+        partner_name,
+        partner_email,
+        case_type,
+        case_sub_type,
+        priority,
+        status,
+        created_at
+      FROM case_updated
+      WHERE assigned_to IS NULL
+      ORDER BY created_at DESC
+      LIMIT $1 OFFSET $2
+    `;
+
+    const result = await db.query(query, [limit, offset]);
+
+    const countQuery = 'SELECT COUNT(*) FROM case_updated WHERE assigned_to IS NULL';
+    const countResult = await db.query(countQuery);
+
+    res.json({
+      success: true,
+      cases: result.rows,
+      pagination: {
+        total: parseInt(countResult.rows[0].count),
+        limit: parseInt(limit),
+        offset: parseInt(offset)
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching unassigned cases:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch unassigned cases',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/cases/stats/assignments
+ * Get assignment statistics
+ */
+router.get('/stats/assignments', authenticate, async (req, res) => {
+  try {
+    const query = `
+      SELECT 
+        COUNT(*) as total_cases,
+        COUNT(CASE WHEN assigned_to IS NOT NULL THEN 1 END) as assigned_cases,
+        COUNT(CASE WHEN assigned_to IS NULL THEN 1 END) as unassigned_cases,
+        COUNT(DISTINCT assigned_to) as active_assignees
+      FROM case_updated
+    `;
+
+    const result = await db.query(query);
+
+    res.json({
+      success: true,
+      stats: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error('Error fetching assignment stats:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch assignment statistics',
+      error: error.message
+    });
+  }
+});
+
+
 
 
 // Use .any() to accept all files regardless of field name
