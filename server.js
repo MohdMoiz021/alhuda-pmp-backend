@@ -10,6 +10,7 @@ const rateLimit = require('express-rate-limit');
 const webbhookRoutes = require('./src/routes/webhookRoutes');
 const casesRoutes = require('./src/routes/case.routes');
 const twilioRoutes = require('./src/routes/twilioRoutes');
+const teamRoutes = require('./src/routes/team.routes');
 const http = require('http');
 const { Server } = require('socket.io');
 
@@ -68,6 +69,7 @@ app.use('/api/conversations', conversationRoutes);
 app.use('/api/twilio', twilioRoutes);
 app.use('/api/webhook', webbhookRoutes);
 app.use('/api/cases', casesRoutes);
+app.use('/api/team', teamRoutes);
 
 // Request logging
 app.use((req, res, next) => {
@@ -102,6 +104,8 @@ app.get('/', (req, res) => {
     }
   });
 });
+
+
 
 // Test database route
 app.get('/api/test-db', async (req, res) => {
