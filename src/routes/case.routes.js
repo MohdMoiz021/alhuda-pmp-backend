@@ -279,6 +279,93 @@ router.post('/:caseId/assign', authenticate, async (req, res) => {
   }
 });
 
+
+/**
+ * GET /api/cases/assigned-to/:userId
+ * Get cases assigned to a specific team member (admin only)
+ */
+router.get('/assigned-to/:userId', authenticate, async (req, res) => {
+  try {
+    // Check if user is admin (optional - add your admin check)
+    const isAdmin = req.user.role === 'admin' || req.user.role === 'super_admin';
+    
+    if (!isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Admin privileges required.'
+      });
+    }
+
+    const { userId } = req.params;
+    const { status, priority, limit = 50, offset = 0 } = req.query;
+
+    let query = `
+      SELECT 
+        id,
+        case_reference,
+        partner_name,
+        partner_email,
+        case_type,
+        case_sub_type,
+        priority,
+        status,
+        assigned_to,
+        assigned_name,
+        assigned_role,
+        assigned_at,
+        created_at
+      FROM case_updated
+      WHERE assigned_to = $1
+    `;
+
+    const queryParams = [userId];
+    let paramIndex = 2;
+
+    if (status) {
+      query += ` AND status = $${paramIndex}`;
+      queryParams.push(status);
+      paramIndex++;
+    }
+
+    if (priority) {
+      query += ` AND priority = $${paramIndex}`;
+      queryParams.push(priority);
+      paramIndex++;
+    }
+
+    query += ` ORDER BY assigned_at DESC NULLS LAST LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    queryParams.push(limit, offset);
+
+    const result = await db.query(query, queryParams);
+
+    // Get user info
+    const userQuery = `SELECT id, email, first_name, last_name FROM users WHERE id = $1`;
+    const userResult = await db.query(userQuery, [userId]);
+    
+    const userName = userResult.rows[0] 
+      ? `${userResult.rows[0].first_name || ''} ${userResult.rows[0].last_name || ''}`.trim() 
+      : 'Unknown User';
+
+    res.json({
+      success: true,
+      user: {
+        id: userId,
+        name: userName || userResult.rows[0]?.email
+      },
+      cases: result.rows,
+      count: result.rows.length
+    });
+
+  } catch (error) {
+    console.error('Error fetching user cases:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch cases',
+      error: error.message
+    });
+  }
+});
+
 /**
  * PUT /api/cases/:caseId/assign
  * Reassign a case to a different team member
@@ -1224,6 +1311,182 @@ router.get('/rejected', async (req, res) => {
 });
 
 
+
+/**
+ * GET /api/cases/my-assigned-cases
+ * Get all cases assigned to the currently logged-in team member
+ * This uses the authenticated user's ID from the token
+ */
+/**
+ * GET /api/cases/my-assigned-cases
+ * Get all cases assigned to the currently logged-in team member
+ * This uses the authenticated user's ID from the token
+ */
+router.get('/my-assigned-cases', authenticate, async (req, res) => {
+  try {
+    const userId = req.user.id; // Get current user ID from auth middleware
+    const { status, priority, limit = 50, offset = 0, search } = req.query;
+
+    console.log(`📋 Fetching cases assigned to current user: ${userId}`);
+
+    // Validate pagination parameters
+    const limitNum = parseInt(limit);
+    const offsetNum = parseInt(offset);
+    
+    // Base query with JOIN to case_status table
+    let query = `
+      SELECT 
+        c.*,
+        cs.status,
+        cs.remarks,
+        cs.updated_at AS status_updated_at
+      FROM case_updated c
+      LEFT JOIN case_status cs ON cs.case_id = c.id
+      WHERE c.assigned_to = $1
+    `;
+
+    const queryParams = [userId];
+    let paramIndex = 2;
+
+    // Add status filter if provided (using the case_status table)
+    if (status) {
+      query += ` AND cs.status = $${paramIndex}`;
+      queryParams.push(status);
+      paramIndex++;
+    }
+
+    // Add priority filter if provided (using the case_updated table)
+    if (priority) {
+      query += ` AND c.priority = $${paramIndex}`;
+      queryParams.push(priority);
+      paramIndex++;
+    }
+
+    // Add search functionality if provided
+    if (search) {
+      query += ` AND (
+        c.case_reference ILIKE $${paramIndex} OR 
+        c.partner_name ILIKE $${paramIndex} OR 
+        c.partner_email ILIKE $${paramIndex} OR 
+        c.case_type ILIKE $${paramIndex}
+      )`;
+      queryParams.push(`%${search}%`);
+      paramIndex++;
+    }
+
+    // Add sorting - order by priority (urgent first), then by date
+    query += ` ORDER BY 
+      CASE 
+        WHEN c.priority = 'urgent' THEN 1
+        WHEN c.priority = 'high' THEN 2
+        WHEN c.priority = 'medium' THEN 3
+        WHEN c.priority = 'low' THEN 4
+        ELSE 5
+      END ASC,
+      c.assigned_at DESC NULLS LAST, 
+      c.created_at DESC 
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    
+    queryParams.push(limitNum, offsetNum);
+
+    console.log('Executing query for my-assigned-cases with JOIN');
+    
+    const result = await db.query(query, queryParams);
+
+    // Get total count for pagination (with same filters)
+    let countQuery = `
+      SELECT COUNT(*) 
+      FROM case_updated c
+      LEFT JOIN case_status cs ON cs.case_id = c.id
+      WHERE c.assigned_to = $1
+    `;
+    
+    const countParams = [userId];
+    let countParamIndex = 2;
+    
+    if (status) {
+      countQuery += ` AND cs.status = $${countParamIndex}`;
+      countParams.push(status);
+      countParamIndex++;
+    }
+    
+    if (priority) {
+      countQuery += ` AND c.priority = $${countParamIndex}`;
+      countParams.push(priority);
+      countParamIndex++;
+    }
+    
+    if (search) {
+      countQuery += ` AND (
+        c.case_reference ILIKE $${countParamIndex} OR 
+        c.partner_name ILIKE $${countParamIndex} OR 
+        c.partner_email ILIKE $${countParamIndex} OR 
+        c.case_type ILIKE $${countParamIndex}
+      )`;
+      countParams.push(`%${search}%`);
+    }
+    
+    const countResult = await db.query(countQuery, countParams);
+    const totalCount = parseInt(countResult.rows[0].count);
+
+    // Get summary statistics for this user
+    const summaryQuery = `
+      SELECT 
+        COUNT(*) as total,
+        COUNT(CASE WHEN cs.status = 'pending' OR cs.status = 'submitted' THEN 1 END) as pending,
+        COUNT(CASE WHEN cs.status = 'in_progress' THEN 1 END) as in_progress,
+        COUNT(CASE WHEN cs.status = 'under_review' THEN 1 END) as under_review,
+        COUNT(CASE WHEN cs.status = 'approved' THEN 1 END) as approved,
+        COUNT(CASE WHEN cs.status = 'rejected' THEN 1 END) as rejected,
+        COUNT(CASE WHEN c.priority = 'urgent' THEN 1 END) as urgent,
+        COUNT(CASE WHEN c.priority = 'high' THEN 1 END) as high_priority
+      FROM case_updated c
+      LEFT JOIN case_status cs ON cs.case_id = c.id
+      WHERE c.assigned_to = $1
+    `;
+    
+    const summaryResult = await db.query(summaryQuery, [userId]);
+
+    // Process the results to combine case data with latest status
+    const cases = result.rows.map(row => {
+      // Remove the joined fields to avoid duplication
+      const { status, remarks, status_updated_at, ...caseData } = row;
+      
+      return {
+        ...caseData,
+        current_status: status || caseData.status, // Use case_status if available, fallback to case_updated.status
+        remarks: remarks,
+        status_updated_at: status_updated_at
+      };
+    });
+
+    res.json({
+      success: true,
+      message: `Found ${cases.length} cases assigned to you`,
+      cases: cases,
+      summary: summaryResult.rows[0],
+      pagination: {
+        total: totalCount,
+        limit: limitNum,
+        offset: offsetNum,
+        currentPage: Math.floor(offsetNum / limitNum) + 1,
+        totalPages: Math.ceil(totalCount / limitNum)
+      },
+      user: {
+        id: userId,
+        name: req.user.name || req.user.email
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching my assigned cases:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch your assigned cases',
+      error: error.message
+    });
+  }
+});
 
 
 
