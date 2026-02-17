@@ -49,7 +49,7 @@ router.patch('/:caseId/status', async (req, res) => {
     const { status, remarks = '', updated_by = null } = req.body;
 
     // Validate status
-    if (!['pending', 'approved', 'rejected'].includes(status)) {
+    if (!['pending', 'approved', 'rejected','clarification_needed','in_review'].includes(status)) {
       return res.status(400).json({
         success: false,
         message: 'Invalid status value'
@@ -115,6 +115,250 @@ router.patch('/:caseId/status', async (req, res) => {
     });
   }
 });
+
+
+
+// GET API for simple status counts
+router.get('/case-status-counts', async (req, res) => {
+  try {
+    const result = await db.query(`
+      SELECT 
+        COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending,
+        COUNT(CASE WHEN status = 'in_review' THEN 1 END) as in_review,
+        COUNT(CASE WHEN status = 'approved' THEN 1 END) as approved,
+        COUNT(CASE WHEN status = 'clarification_needed' THEN 1 END) as clarification_needed,
+        COUNT(CASE WHEN status = 'rejected' THEN 1 END) as rejected,
+        COUNT(*) as total
+      FROM case_updated
+    `);
+
+    const counts = result.rows[0];
+    
+    res.json({
+      success: true,
+      timestamp: new Date(),
+      data: {
+        pending: parseInt(counts.pending),
+        in_review: parseInt(counts.in_review),
+        approved: parseInt(counts.approved),
+        clarification_needed: parseInt(counts.clarification_needed),
+        rejected: parseInt(counts.rejected),
+        total: parseInt(counts.total)
+      },
+      summary: {
+        total_cases: parseInt(counts.total),
+        active_cases: parseInt(counts.pending) + parseInt(counts.in_review) + parseInt(counts.clarification_needed),
+        completed_cases: parseInt(counts.approved),
+        rejected_cases: parseInt(counts.rejected)
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching status counts:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch case status counts',
+      error: error.message
+    });
+  }
+});
+
+
+
+
+// Assuming you have a db connection exported from your db config
+// const db = require('../config/db'); // Your PostgreSQL connection
+
+// GET API for case statistics
+
+        // Calculate total cases
+// Simple API for your UI table - FIXED
+router.get('/case-counts', async (req, res) => {
+    try {
+        // First, get all counts with CASE statement but don't reference alias in GROUP BY
+        const result = await db.query(`
+            SELECT 
+                CASE 
+                    WHEN case_type ILIKE '%consult%' OR case_type = 'Bank Consultancy' THEN 'Business Account Opening'
+                    WHEN case_type ILIKE '%trade%' OR case_type ILIKE '%lc%' OR case_type ILIKE '%bg%' OR case_type = 'Trade Facilities' THEN 'Trade Facilities (LC, BG, Guarantees)'
+                    WHEN case_type ILIKE '%project%' OR case_type = 'Project Funding' THEN 'Project Funding'
+                    WHEN case_type ILIKE '%sukuk%' OR case_type = 'Sukuk Funding' THEN 'Sukuk Funding'
+                    ELSE 'Other Custom Services'
+                END as service_name,
+                COUNT(*) as count
+            FROM case_updated
+            WHERE status NOT IN ('rejected', 'deleted') OR status IS NULL
+            GROUP BY 
+                CASE 
+                    WHEN case_type ILIKE '%consult%' OR case_type = 'Bank Consultancy' THEN 'Business Account Opening'
+                    WHEN case_type ILIKE '%trade%' OR case_type ILIKE '%lc%' OR case_type ILIKE '%bg%' OR case_type = 'Trade Facilities' THEN 'Trade Facilities (LC, BG, Guarantees)'
+                    WHEN case_type ILIKE '%project%' OR case_type = 'Project Funding' THEN 'Project Funding'
+                    WHEN case_type ILIKE '%sukuk%' OR case_type = 'Sukuk Funding' THEN 'Sukuk Funding'
+                    ELSE 'Other Custom Services'
+                END
+        `);
+
+        // Define the default categories in the exact order you want
+        const defaultCategories = [
+            'Business Account Opening',
+            'Trade Facilities (LC, BG, Guarantees)',
+            'Project Funding',
+            'Sukuk Funding',
+            'Other Custom Services'
+        ];
+
+        // Create a map of the results
+        const countsMap = {};
+        result.rows.forEach(row => {
+            countsMap[row.service_name] = parseInt(row.count);
+        });
+
+        // Build the final array in the correct order
+        const counts = defaultCategories.map(category => ({
+            service_name: category,
+            count: countsMap[category] || 0
+        }));
+
+        res.json({
+            success: true,
+            data: counts,
+            total: counts.reduce((sum, item) => sum + item.count, 0),
+            timestamp: new Date()
+        });
+
+    } catch (error) {
+        console.error('Database error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching case counts',
+            error: error.message
+        });
+    }
+});
+    
+
+// GET API for filtered case statistics
+router.get('/api/case-stats/filtered', async (req, res) => {
+    try {
+        const { status, priority, case_type, date_from, date_to } = req.query;
+        
+        let query = `
+            SELECT 
+                CASE 
+                    WHEN case_type = 'Bank Consultancy' OR case_type ILIKE '%consult%' THEN 'Business Account Opening'
+                    WHEN case_type = 'Trade Facilities' OR case_type ILIKE '%trade%' OR case_type ILIKE '%LC%' OR case_type ILIKE '%BG%' THEN 'Trade Facilities (LC, BG, Guarantees)'
+                    WHEN case_type = 'Project Funding' OR case_type ILIKE '%project%' THEN 'Project Funding'
+                    WHEN case_type = 'Sukuk Funding' OR case_type ILIKE '%sukuk%' THEN 'Sukuk Funding'
+                    ELSE 'Other Custom Services'
+                END as service_name,
+                COUNT(*) as count_value
+            FROM case_updated
+            WHERE 1=1
+        `;
+        
+        const values = [];
+        let paramIndex = 1;
+
+        if (status) {
+            query += ` AND status = $${paramIndex}`;
+            values.push(status);
+            paramIndex++;
+        }
+
+        if (priority) {
+            query += ` AND priority = $${paramIndex}`;
+            values.push(priority);
+            paramIndex++;
+        }
+
+        if (case_type) {
+            query += ` AND case_type = $${paramIndex}`;
+            values.push(case_type);
+            paramIndex++;
+        }
+
+        if (date_from) {
+            query += ` AND created_at >= $${paramIndex}`;
+            values.push(date_from);
+            paramIndex++;
+        }
+
+        if (date_to) {
+            query += ` AND created_at <= $${paramIndex}`;
+            values.push(date_to);
+            paramIndex++;
+        }
+
+        query += ` GROUP BY service_name ORDER BY count_value DESC`;
+
+        const stats = await db.query(query, values);
+
+        res.json({
+            success: true,
+            filters: { status, priority, case_type, date_from, date_to },
+            data: stats.rows
+        });
+
+    } catch (error) {
+        console.error('Filter error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching filtered statistics',
+            error: error.message
+        });
+    }
+});
+
+// GET API for specific case type details
+router.get('/api/case-stats/:caseType', async (req, res) => {
+    try {
+        const { caseType } = req.params;
+        
+        const details = await db.query(`
+            SELECT 
+                id,
+                case_reference,
+                case_sub_type,
+                priority,
+                status,
+                partner_name,
+                partner_email,
+                created_at,
+                assigned_name,
+                EXTRACT(DAY FROM NOW() - created_at) as age_in_days
+            FROM case_updated
+            WHERE case_type = $1 
+                AND status IN ('approved', 'in_review', 'pending')
+            ORDER BY 
+                CASE 
+                    WHEN priority = 'Urgent' THEN 1
+                    WHEN priority = 'High' THEN 2
+                    WHEN priority = 'Medium' THEN 3
+                    WHEN priority = 'Normal' THEN 4
+                    WHEN priority = 'Low' THEN 5
+                    ELSE 6
+                END,
+                created_at DESC
+        `, [caseType]);
+
+        res.json({
+            success: true,
+            case_type: caseType,
+            total: details.rows.length,
+            cases: details.rows
+        });
+
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching case details',
+            error: error.message
+        });
+    }
+});
+
+
 
 
 router.get('/:caseId/assignees', authenticate, async (req, res) => {
@@ -1283,6 +1527,8 @@ router.get('/rejected', async (req, res) => {
         c.partner_name,
         c.partner_email,
         c.status,
+        c.main_document,
+        c.additional_documents,
         cs.remarks,
         c.created_at,
         c.updated_at
