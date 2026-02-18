@@ -43,10 +43,96 @@ async function generatePresignedUrl(s3Key, expiresIn = 3600) {
   return await getSignedUrl(s3Client, command, { expiresIn });
 }
 
+// router.patch('/:caseId/status', async (req, res) => {
+//   try {
+//     const { caseId } = req.params;
+//     const { status, remarks = '', updated_by = null } = req.body;
+
+//     // Validate status
+//     if (!['pending', 'approved', 'rejected','clarification_needed','in_review'].includes(status)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Invalid status value'
+//       });
+//     }
+
+//     // Check if case exists
+//     const caseCheck = await db.query(
+//       'SELECT * FROM case_updated WHERE id = $1',
+//       [caseId]
+//     );
+
+//     if (!caseCheck.rows.length) {
+//       return res.status(404).json({
+//         success: false,
+//         message: 'Case not found'
+//       });
+//     }
+
+//     // 1️⃣ Update the main case status
+//     const updatedCase = await db.query(
+//       `
+//       UPDATE case_updated
+//       SET status = $1,
+//           updated_at = CURRENT_TIMESTAMP
+//       WHERE id = $2
+//       RETURNING *;
+//       `,
+//       [status, caseId]
+//     );
+
+//     // 2️⃣ Insert or update remarks in case_status table
+//     const statusResult = await db.query(
+//       `
+//       INSERT INTO case_status (case_id, status, remarks, updated_by)
+//       VALUES ($1, $2, $3, $4)
+//       ON CONFLICT (case_id)
+//       DO UPDATE SET
+//         status = EXCLUDED.status,
+//         remarks = EXCLUDED.remarks,
+//         updated_by = EXCLUDED.updated_by,
+//         updated_at = CURRENT_TIMESTAMP
+//       RETURNING *;
+//       `,
+//       [caseId, status, remarks, updated_by]
+//     );
+
+//     res.json({
+//       success: true,
+//       message: `Case ${status} successfully`,
+//       data: {
+//         case: updatedCase.rows[0],
+//         case_status: statusResult.rows[0]
+//       }
+//     });
+
+//   } catch (error) {
+//     console.error('Update status error:', error);
+//     res.status(500).json({
+//       success: false,
+//       message: 'Failed to update case status',
+//       error: error.message
+//     });
+//   }
+// });
+
+// routes/cases.routes.js
+
+
+// routes/cases.routes.js
 router.patch('/:caseId/status', async (req, res) => {
   try {
     const { caseId } = req.params;
-    const { status, remarks = '', updated_by = null } = req.body;
+    const { 
+      status, 
+      remarks = '', 
+      updated_by = null,
+      total_deal_value,
+      profit_margin,
+      total_profit,
+      commission_percentage,
+      commission 
+    } = req.body;
 
     // Validate status
     if (!['pending', 'approved', 'rejected','clarification_needed','in_review'].includes(status)) {
@@ -54,6 +140,16 @@ router.patch('/:caseId/status', async (req, res) => {
         success: false,
         message: 'Invalid status value'
       });
+    }
+
+    // For approval, validate financial fields
+    if (status === 'approved') {
+      if (!total_deal_value || !profit_margin || !commission) {
+        return res.status(400).json({
+          success: false,
+          message: 'Total deal value, profit margin, and commission are required for approval'
+        });
+      }
     }
 
     // Check if case exists
@@ -69,16 +165,49 @@ router.patch('/:caseId/status', async (req, res) => {
       });
     }
 
-    // 1️⃣ Update the main case status
+    // Build dynamic update query for case_updated
+    let updateFields = ['status = $1', 'updated_at = CURRENT_TIMESTAMP'];
+    let values = [status];
+    let paramIndex = 2;
+
+    // Add financial fields only if provided (for approval)
+    if (total_deal_value !== undefined) {
+      updateFields.push(`total_deal_value = $${paramIndex}`);
+      values.push(total_deal_value);
+      paramIndex++;
+    }
+        if (total_profit !== undefined) {
+      updateFields.push(`total_profit = $${paramIndex}`);
+      values.push(total_profit);
+      paramIndex++;
+    }
+    if (profit_margin !== undefined) {
+      updateFields.push(`profit_margin = $${paramIndex}`);
+      values.push(profit_margin);
+      paramIndex++;
+    }
+        if (commission_percentage !== undefined) {
+      updateFields.push(`commission_percentage = $${paramIndex}`);
+      values.push(commission_percentage);
+      paramIndex++;
+    }
+    if (commission !== undefined) {
+      updateFields.push(`commission = $${paramIndex}`);
+      values.push(commission);
+      paramIndex++;
+    }
+
+    values.push(caseId);
+
+    // 1️⃣ Update the main case status and financial details
     const updatedCase = await db.query(
       `
       UPDATE case_updated
-      SET status = $1,
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = $2
+      SET ${updateFields.join(', ')}
+      WHERE id = $${paramIndex}
       RETURNING *;
       `,
-      [status, caseId]
+      values
     );
 
     // 2️⃣ Insert or update remarks in case_status table
