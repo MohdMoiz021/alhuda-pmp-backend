@@ -130,7 +130,6 @@ router.patch('/:caseId/status', async (req, res) => {
       total_deal_value,
       profit_margin,
       total_profit,
-      commission_percentage,
       commission 
     } = req.body;
 
@@ -144,7 +143,7 @@ router.patch('/:caseId/status', async (req, res) => {
 
     // For approval, validate financial fields
     if (status === 'approved') {
-      if (!total_deal_value || !profit_margin || !commission) {
+      if (!total_deal_value || !profit_margin || !commission || !commission_percentage || !total_profit) {
         return res.status(400).json({
           success: false,
           message: 'Total deal value, profit margin, and commission are required for approval'
@@ -1063,6 +1062,82 @@ router.get('/stats/assignments', authenticate, async (req, res) => {
 
 
 
+// Add this to your backend routes
+router.get('/totals', async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    
+    let query = `
+      SELECT 
+        COALESCE(SUM(total_deal_value), 0) as total_deal_value,
+        COALESCE(SUM(total_profit), 0) as total_profit,
+        COALESCE(SUM(commission), 0) as total_commission
+      FROM case_updated
+      WHERE status = 'approved'
+    `;
+    
+    const params = [];
+    
+    if (startDate && endDate) {
+      query += ` AND updated_at BETWEEN $1 AND $2`;
+      params.push(startDate, endDate);
+    }
+
+    const result = await db.query(query, params);
+
+    res.json({
+      success: true,
+      data: {
+        total_deal_value: parseFloat(result.rows[0].total_deal_value) || 0,
+        total_profit: parseFloat(result.rows[0].total_profit) || 0,
+        total_commission: parseFloat(result.rows[0].total_commission) || 0
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching totals:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch totals',
+      error: error.message
+    });
+  }
+});
+
+
+
+
+// Simple stats API
+router.get('/financial-summary', async (req, res) => {
+  try {
+    const result = await db.query(`
+      SELECT 
+        COALESCE(SUM(total_deal_value), 0) as total_deal_value,
+        COALESCE(SUM(total_profit), 0) as total_profit,
+        COALESCE(SUM(commission), 0) as total_commission
+      FROM case_updated
+      WHERE status = 'approved'
+    `);
+
+    res.json({
+      success: true,
+      data: {
+        total_deal_value: parseFloat(result.rows[0].total_deal_value),
+        total_profit: parseFloat(result.rows[0].total_profit),
+        total_commission: parseFloat(result.rows[0].total_commission)
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching financial summary:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch financial summary',
+      error: error.message
+    });
+  }
+});
+
 
 // Use .any() to accept all files regardless of field name
 // const upload = multer({ 
@@ -1571,7 +1646,45 @@ router.get('/allcases', async (req, res) => {
   }
 });
 
+// Simple client statistics
+router.get('/client-summary', async (req, res) => {
+  try {
+    const result = await db.query(`
+      SELECT 
+        partner_name,
+        partner_email,
+        COUNT(*) as total_cases,
+        COALESCE(SUM(total_deal_value), 0) as total_deal_value,
+        COALESCE(SUM(commission), 0) as total_commission
+      FROM case_updated
+      WHERE partner_name IS NOT NULL 
+        AND partner_name != ''
+        AND status = 'approved'
+      GROUP BY partner_name, partner_email
+      ORDER BY total_deal_value DESC
+    `);
 
+    res.json({
+      success: true,
+      count: result.rows.length,
+      data: result.rows.map(row => ({
+        partner_name: row.partner_name,
+        partner_email: row.partner_email,
+        total_cases: parseInt(row.total_cases),
+        total_deal_value: parseFloat(row.total_deal_value),
+        total_commission: parseFloat(row.total_commission)
+      }))
+    });
+
+  } catch (error) {
+    console.error('Error fetching client summary:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch client summary',
+      error: error.message
+    });
+  }
+});
 
 
 router.get('/pending', async (req, res) => {
