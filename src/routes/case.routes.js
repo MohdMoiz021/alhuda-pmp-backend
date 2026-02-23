@@ -130,7 +130,8 @@ router.patch('/:caseId/status', async (req, res) => {
       total_deal_value,
       profit_margin,
       total_profit,
-      commission 
+      commission,
+      commission_percentage 
     } = req.body;
 
     // Validate status
