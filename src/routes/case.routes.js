@@ -356,8 +356,6 @@ router.get('/case-status-counts', async (req, res) => {
   }
 });
 
-
-
 // GET API for case statistics
 
         // Calculate total cases
