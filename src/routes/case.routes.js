@@ -1164,8 +1164,6 @@ router.get('/totals', async (req, res) => {
 });
 
 
-
-
 // Simple stats API
 router.get('/financial-summary', async (req, res) => {
   try {
