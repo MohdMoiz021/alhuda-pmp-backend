@@ -246,6 +246,70 @@ router.patch('/:caseId/status', async (req, res) => {
 });
 
 
+/**
+ * GET /api/cases/user/:userId/summary
+ * Get summary statistics for a user's cases
+ */
+router.get('/user/:userId/summary', async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const userIdNum = parseInt(userId);
+    if (isNaN(userIdNum)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID format'
+      });
+    }
+
+    const query = `
+      SELECT 
+        COUNT(*) as total_cases,
+        COUNT(CASE WHEN cs.status = 'approved' THEN 1 END) as approved,
+        COUNT(CASE WHEN cs.status = 'rejected' THEN 1 END) as rejected,
+        COUNT(CASE WHEN cs.status IN ('pending', 'submitted') THEN 1 END) as pending,
+        COUNT(CASE WHEN cs.status = 'in_progress' THEN 1 END) as in_progress,
+        COUNT(CASE WHEN cs.status = 'under_review' THEN 1 END) as under_review,
+        COUNT(CASE WHEN cu.priority = 'urgent' THEN 1 END) as urgent_cases,
+        SUM(cu.total_deal_value) as total_deal_value,
+        SUM(cu.commission) as total_commission,
+        SUM(cu.total_profit) as total_profit,
+        COALESCE(AVG(cu.commission), 0) as avg_commission
+      FROM case_updated cu
+      LEFT JOIN case_status cs ON cu.id = cs.case_id
+      WHERE cu.user_id = $1
+    `;
+
+    const result = await db.query(query, [userIdNum]);
+
+    res.json({
+      success: true,
+      summary: result.rows[0] || {
+        total_cases: 0,
+        approved: 0,
+        rejected: 0,
+        pending: 0,
+        in_progress: 0,
+        under_review: 0,
+        urgent_cases: 0,
+        total_deal_value: 0,
+        total_commission: 0,
+        total_profit: 0,
+        avg_commission: 0
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching user summary:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch user summary',
+      error: error.message
+    });
+  }
+});
+
+
 
 // GET API for simple status counts
 router.get('/case-status-counts', async (req, res) => {
