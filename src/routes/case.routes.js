@@ -358,10 +358,6 @@ router.get('/case-status-counts', async (req, res) => {
 
 
 
-
-// Assuming you have a db connection exported from your db config
-// const db = require('../config/db'); // Your PostgreSQL connection
-
 // GET API for case statistics
 
         // Calculate total cases
