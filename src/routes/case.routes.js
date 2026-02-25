@@ -311,7 +311,7 @@ router.get('/user/:userId/summary', async (req, res) => {
 
 
 
-// GET API for simple status counts
+
 router.get('/case-status-counts', async (req, res) => {
   try {
     const result = await db.query(`
