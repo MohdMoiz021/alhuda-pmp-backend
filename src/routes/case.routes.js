@@ -250,9 +250,14 @@ router.patch('/:caseId/status', async (req, res) => {
  * GET /api/cases/user/:userId/summary
  * Get summary statistics for a user's cases
  */
-router.get('/user/:userId/summary', async (req, res) => {
+/**
+ * GET /api/cases/user/:userId
+ * Get all cases and summary for a specific user
+ */
+router.get('/user/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
+    const { status, limit = 50, offset = 0, search } = req.query;
 
     const userIdNum = parseInt(userId);
     if (isNaN(userIdNum)) {
@@ -262,7 +267,8 @@ router.get('/user/:userId/summary', async (req, res) => {
       });
     }
 
-    const query = `
+    // ===== SUMMARY QUERY =====
+    const summaryQuery = `
       SELECT 
         COUNT(*) as total_cases,
         COUNT(CASE WHEN cs.status = 'approved' THEN 1 END) as approved,
@@ -280,11 +286,88 @@ router.get('/user/:userId/summary', async (req, res) => {
       WHERE cu.user_id = $1
     `;
 
-    const result = await db.query(query, [userIdNum]);
+    const summaryResult = await db.query(summaryQuery, [userIdNum]);
+
+    // ===== CASES LIST QUERY =====
+    let listQuery = `
+      SELECT 
+        cu.id,
+        cu.case_reference,
+        cu.case_type,
+        cu.case_sub_type,
+        cu.priority,
+        cu.total_deal_value,
+        cu.commission,
+        cu.total_profit,
+        cu.created_at,
+        cu.updated_at,
+        cu.partner_name,
+        cu.partner_email,
+        cu.description,
+        cu.additional_notes,
+        COALESCE(cs.status, cu.status, 'pending') as status,
+        cs.remarks,
+        cs.updated_at as status_updated_at
+      FROM case_updated cu
+      LEFT JOIN (
+        SELECT DISTINCT ON (case_id) 
+          case_id,
+          status,
+          remarks,
+          updated_at
+        FROM case_status
+        ORDER BY case_id, updated_at DESC
+      ) cs ON cu.id = cs.case_id
+      WHERE cu.user_id = $1
+    `;
+
+    const listParams = [userIdNum];
+    let paramIndex = 2;
+
+    // Add status filter if provided
+    if (status) {
+      listQuery += ` AND COALESCE(cs.status, cu.status) = $${paramIndex}`;
+      listParams.push(status);
+      paramIndex++;
+    }
+
+    // Add search functionality
+    if (search) {
+      listQuery += ` AND (
+        cu.case_reference ILIKE $${paramIndex} OR 
+        cu.partner_name ILIKE $${paramIndex} OR 
+        cu.case_type ILIKE $${paramIndex}
+      )`;
+      listParams.push(`%${search}%`);
+      paramIndex++;
+    }
+
+    // Add sorting and pagination
+    listQuery += ` ORDER BY cu.created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    listParams.push(parseInt(limit), parseInt(offset));
+
+    const listResult = await db.query(listQuery, listParams);
+
+    // Get total count for pagination
+    let countQuery = `SELECT COUNT(*) FROM case_updated WHERE user_id = $1`;
+    const countParams = [userIdNum];
+    
+    if (status) {
+      countQuery = `
+        SELECT COUNT(*) 
+        FROM case_updated cu
+        LEFT JOIN case_status cs ON cu.id = cs.case_id
+        WHERE cu.user_id = $1 AND COALESCE(cs.status, cu.status) = $2
+      `;
+      countParams.push(status);
+    }
+    
+    const countResult = await db.query(countQuery, countParams);
+    const totalCount = parseInt(countResult.rows[0].count);
 
     res.json({
       success: true,
-      summary: result.rows[0] || {
+      summary: summaryResult.rows[0] || {
         total_cases: 0,
         approved: 0,
         rejected: 0,
@@ -296,14 +379,25 @@ router.get('/user/:userId/summary', async (req, res) => {
         total_commission: 0,
         total_profit: 0,
         avg_commission: 0
+      },
+      cases: listResult.rows,
+      pagination: {
+        total: totalCount,
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+        currentPage: Math.floor(parseInt(offset) / parseInt(limit)) + 1,
+        totalPages: Math.ceil(totalCount / parseInt(limit))
+      },
+      user: {
+        id: userIdNum
       }
     });
 
   } catch (error) {
-    console.error('Error fetching user summary:', error);
+    console.error('Error fetching user cases:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch user summary',
+      message: 'Failed to fetch user cases',
       error: error.message
     });
   }
