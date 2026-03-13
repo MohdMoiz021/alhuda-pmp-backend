@@ -11,7 +11,7 @@ const { upload, uploadToS3 } = require('../../middleware/upload.middleware');
 const { S3Client, GetObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const { authenticate } = require('../../middleware/auth');
-
+const { emailTemplates } = require('../../services/emailService');
 // Configure multer to accept ANY field name
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -1616,6 +1616,8 @@ router.get('/financial-summary', async (req, res) => {
 //   }
 // });
 
+
+
 router.post('/', upload.any(), uploadToS3, async (req, res) => {
   try {
     const formData = req.body;
@@ -1704,13 +1706,74 @@ router.post('/', upload.any(), uploadToS3, async (req, res) => {
       additional_documents.length > 0
         ? JSON.stringify(additional_documents)
         : null,
-      'pending', // ✅ DEFAULT STATUS
+      'pending',
       new Date(),
       new Date()
     ];
 
     const result = await db.query(query, values);
     const insertedCase = result.rows[0];
+
+    // 📧 SEND EMAIL NOTIFICATIONS
+    try {
+      // 1. Send email to the partner/sub consultant (using partner_email)
+      if (partner_email) {
+        await emailTemplates.caseSubmittedToPartner({
+          partner_name: partner_name || 'Valued Partner',
+          partner_email: partner_email,
+          case_reference: insertedCase.case_reference,
+          case_type: insertedCase.case_type,
+          case_sub_type: insertedCase.case_sub_type,
+          description: insertedCase.description,
+          priority: insertedCase.priority,
+          submitted_date: new Date().toLocaleString(),
+          document_count: s3_documents.length
+        });
+        console.log(`✅ Case submission email sent to partner: ${partner_email}`);
+      }
+
+      // 2. Get all admin users (admin_a and admin_c) to notify them
+      const adminQuery = `
+        SELECT id, first_name, last_name, email, role
+        FROM users
+        WHERE role IN ('admin_a', 'admin_c') 
+        AND is_active = true
+      `;
+      const adminResult = await db.query(adminQuery);
+      const adminUsers = adminResult.rows;
+
+      // 3. Send notification to each admin
+      if (adminUsers.length > 0) {
+        const adminNotificationPromises = adminUsers.map(admin => 
+          emailTemplates.newCaseNotificationToAdmin({
+            admin_name: admin.first_name || 'Admin',
+            admin_email: admin.email,
+            partner_name: partner_name || 'A partner',
+            partner_email: partner_email,
+            case_reference: insertedCase.case_reference,
+            case_type: insertedCase.case_type,
+            case_sub_type: insertedCase.case_sub_type,
+            description: insertedCase.description,
+            priority: insertedCase.priority,
+            submitted_date: new Date().toLocaleString(),
+            document_count: s3_documents.length,
+            case_id: insertedCase.id
+          }).catch(err => {
+            console.error(`❌ Failed to send notification to admin ${admin.email}:`, err.message);
+            return null;
+          })
+        );
+
+        await Promise.all(adminNotificationPromises);
+        console.log(`✅ Admin notifications sent to ${adminUsers.length} admins`);
+      } else {
+        console.log('⚠️ No active admin users found to notify');
+      }
+
+    } catch (emailError) {
+      // Log email error but don't fail the request
+      console.error('❌ Error sending case submission emails:', emailError);
+    }
 
     res.status(201).json({
       success: true,
@@ -1724,7 +1787,7 @@ router.post('/', upload.any(), uploadToS3, async (req, res) => {
         partner_name: insertedCase.partner_name,
         partner_email: insertedCase.partner_email,
         case_reference: insertedCase.case_reference,
-        status: insertedCase.status, // ✅ pending
+        status: insertedCase.status,
         documents: {
           main: main_document || null,
           additional: additional_documents
@@ -2093,7 +2156,7 @@ router.get('/my-assigned-cases', authenticate, async (req, res) => {
       
       return {
         ...caseData,
-        current_status: status || caseData.status, // Use case_status if available, fallback to case_updated.status
+        status: status || caseData.status, // Use case_status if available, fallback to case_updated.status
         remarks: remarks,
         status_updated_at: status_updated_at
       };
@@ -2309,7 +2372,7 @@ router.put('/:id/approve', authenticate, async (req, res) => {
 
         // 1. First check if case exists
         const caseCheck = await db.query(
-            `SELECT id, current_status FROM case_updated WHERE id = $1`,
+            `SELECT id, status FROM case_updated WHERE id = $1`,
             [caseId]
         );
 
@@ -2323,7 +2386,7 @@ router.put('/:id/approve', authenticate, async (req, res) => {
         const currentCase = caseCheck.rows[0];
         
         // Optional: Check if case is already approved
-        if (currentCase.current_status === 'approved') {
+        if (currentCase.status === 'approved') {
             return res.status(400).json({
                 success: false,
                 message: 'Case is already approved'
@@ -2333,7 +2396,7 @@ router.put('/:id/approve', authenticate, async (req, res) => {
         // 2. Update cases table status
         await db.query(
             `UPDATE case_updated SET 
-                current_status = 'approved',
+                status = 'approved',
                 updated_at = CURRENT_TIMESTAMP 
              WHERE id = $1`,
             [caseId]
@@ -2397,7 +2460,7 @@ router.put('/:id/reject', authenticate, async (req, res) => {
 
         // 1. Update cases table status
         await db.query(
-            `UPDATE cases SET current_status = 'rejected' WHERE id = $1`,
+            `UPDATE cases SET status = 'rejected' WHERE id = $1`,
             [caseId]
         );
 
@@ -2441,7 +2504,7 @@ router.get('/rejected', authenticate, async (req, res) => {
              LEFT JOIN users u ON c.user_id = u.id
              LEFT JOIN case_actions ca ON c.id = ca.case_id AND ca.action = 'reject'
              LEFT JOIN users au ON ca.user_id = au.id
-             WHERE c.current_status = 'rejected'
+             WHERE c.status = 'rejected'
              ORDER BY ca.created_at DESC`
         );
 
@@ -2500,8 +2563,8 @@ router.put('/:id/reopen', authenticate, async (req, res) => {
         // 1. Update cases table status
         await db.query(
             `UPDATE cases 
-             SET current_status = 'pending_review' 
-             WHERE id = $1 AND current_status = 'rejected'`,
+             SET status = 'pending_review' 
+             WHERE id = $1 AND status = 'rejected'`,
             [caseId]
         );
 

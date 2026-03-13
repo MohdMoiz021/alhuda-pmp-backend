@@ -63,8 +63,8 @@ router.get('/stats', authenticate, async (req, res) => {
         u.email,
         u.role,
         COUNT(cu.id) as cases_handled,
-        COUNT(CASE WHEN cu.current_status = 'approved' THEN 1 END) as completed,
-        COUNT(CASE WHEN cu.current_status = 'rejected' THEN 1 END) as rejected,
+        COUNT(CASE WHEN cu.status = 'approved' THEN 1 END) as completed,
+        COUNT(CASE WHEN cu.status = 'rejected' THEN 1 END) as rejected,
         COUNT(CASE WHEN cu.priority = 'urgent' THEN 1 END) as urgent_handled,
         AVG(EXTRACT(EPOCH FROM (cu.updated_at - cu.created_at))/3600)::numeric(10,2) as avg_processing_time,
         MAX(cu.updated_at) as last_action
@@ -144,10 +144,10 @@ router.get('/members', authenticate, async (req, res) => {
         SELECT 
           assigned_to,
           COUNT(*) as total_assigned,
-          COUNT(CASE WHEN current_status = 'approved' THEN 1 END) as completed,
-          COUNT(CASE WHEN current_status IN ('pending', 'submitted', 'in_progress', 'under_review') THEN 1 END) as pending,
+          COUNT(CASE WHEN status = 'approved' THEN 1 END) as completed,
+          COUNT(CASE WHEN status IN ('pending', 'submitted', 'in_progress', 'under_review') THEN 1 END) as pending,
           COUNT(CASE WHEN priority = 'urgent' THEN 1 END) as urgent,
-          COUNT(CASE WHEN current_status = 'in_progress' THEN 1 END) as in_progress
+          COUNT(CASE WHEN status = 'in_progress' THEN 1 END) as in_progress
         FROM case_updated
         WHERE assigned_to IS NOT NULL
         GROUP BY assigned_to
@@ -280,11 +280,11 @@ router.get('/members/:memberId', authenticate, async (req, res) => {
     const caseStatsQuery = `
       SELECT 
         COUNT(*) as total_assigned,
-        COUNT(CASE WHEN current_status = 'approved' THEN 1 END) as completed,
-        COUNT(CASE WHEN current_status IN ('pending', 'submitted', 'in_progress', 'under_review') THEN 1 END) as pending,
+        COUNT(CASE WHEN status = 'approved' THEN 1 END) as completed,
+        COUNT(CASE WHEN status IN ('pending', 'submitted', 'in_progress', 'under_review') THEN 1 END) as pending,
         COUNT(CASE WHEN priority = 'urgent' THEN 1 END) as urgent,
-        COUNT(CASE WHEN current_status = 'in_progress' THEN 1 END) as in_progress,
-        COUNT(CASE WHEN current_status = 'rejected' THEN 1 END) as rejected,
+        COUNT(CASE WHEN status = 'in_progress' THEN 1 END) as in_progress,
+        COUNT(CASE WHEN status = 'rejected' THEN 1 END) as rejected,
         MAX(updated_at) as last_case_activity,
         AVG(EXTRACT(EPOCH FROM (updated_at - created_at))/3600)::numeric(10,2) as avg_completion_time
       FROM case_updated
@@ -301,7 +301,7 @@ router.get('/members/:memberId', authenticate, async (req, res) => {
         partner_name,
         case_type,
         priority,
-        current_status as status,
+        status as status,
         created_at,
         updated_at
       FROM case_updated
@@ -384,8 +384,8 @@ router.get('/performance', authenticate, async (req, res) => {
         u.email,
         u.role,
         COUNT(c.id) as cases_handled,
-        COUNT(CASE WHEN c.current_status = 'approved' THEN 1 END) as completed,
-        COUNT(CASE WHEN c.current_status = 'rejected' THEN 1 END) as rejected,
+        COUNT(CASE WHEN c.status = 'approved' THEN 1 END) as completed,
+        COUNT(CASE WHEN c.status = 'rejected' THEN 1 END) as rejected,
         COUNT(CASE WHEN c.priority = 'urgent' THEN 1 END) as urgent_handled,
         AVG(EXTRACT(EPOCH FROM (c.updated_at - c.created_at))/3600)::numeric(10,2) as avg_processing_time,
         MAX(c.updated_at) as last_action
@@ -449,7 +449,7 @@ router.get('/dashboard', authenticate, async (req, res) => {
         (SELECT COUNT(*) FROM users WHERE role IN ('consultant', 'analyst', 'manager', 'admin_b')) as total_members,
         (SELECT COUNT(*) FROM users WHERE role IN ('consultant', 'analyst', 'manager', 'admin_b') AND is_active = true) as active_members,
         (SELECT COUNT(*) FROM case_updated WHERE assigned_to IS NOT NULL) as assigned_cases,
-        (SELECT COUNT(*) FROM case_updated WHERE assigned_to IS NOT NULL AND current_status = 'approved') as completed_cases,
+        (SELECT COUNT(*) FROM case_updated WHERE assigned_to IS NOT NULL AND status = 'approved') as completed_cases,
         (SELECT COUNT(*) FROM case_updated WHERE assigned_to IS NOT NULL AND priority = 'urgent') as urgent_cases
     `;
 
@@ -464,10 +464,10 @@ router.get('/dashboard', authenticate, async (req, res) => {
         u.role,
         COUNT(c.id) as current_load,
         COUNT(CASE WHEN c.priority = 'urgent' THEN 1 END) as urgent_load,
-        COUNT(CASE WHEN c.current_status = 'in_progress' THEN 1 END) as in_progress
+        COUNT(CASE WHEN c.status = 'in_progress' THEN 1 END) as in_progress
       FROM users u
       LEFT JOIN case_updated c ON u.id = c.assigned_to 
-        AND c.current_status NOT IN ('approved', 'rejected')
+        AND c.status NOT IN ('approved', 'rejected')
       WHERE u.role IN ('consultant', 'analyst', 'manager', 'admin_b')
       GROUP BY u.id, u.first_name, u.last_name, u.role
       ORDER BY current_load DESC
@@ -481,7 +481,7 @@ router.get('/dashboard', authenticate, async (req, res) => {
         c.id,
         c.case_reference,
         c.partner_name,
-        c.current_status,
+        c.status,
         c.updated_at,
         u.first_name as assigned_to_name,
         u.last_name as assigned_to_last
@@ -510,7 +510,7 @@ router.get('/dashboard', authenticate, async (req, res) => {
           id: a.id,
           caseReference: a.case_reference,
           partnerName: a.partner_name,
-          status: a.current_status,
+          status: a.status,
           updatedAt: a.updated_at,
           assignedTo: a.assigned_to_name ? 
             `${a.assigned_to_name} ${a.assigned_to_last || ''}`.trim() : 

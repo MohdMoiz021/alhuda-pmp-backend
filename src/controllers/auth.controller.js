@@ -1,66 +1,82 @@
 // src/controllers/authController.js
 const { pool } = require('../../db');
 const { generateToken, hashPassword, comparePassword } = require('../utils/auth');
+const { sendEmail, emailTemplates } = require('../../services/emailService');
+// const register = async (req, res) => {
+//   try {
+//     const { email, password, first_name, last_name, phone, company_name, role } = req.body;
+//     if (!email || !password || !role) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Email, password, and role are required'
+//       });
+//     }
 
-const register = async (req, res) => {
-  try {
-    const { email, password, first_name, last_name, phone, company_name, role } = req.body;
-    if (!email || !password || !role) {
-      return res.status(400).json({
-        success: false,
-        message: 'Email, password, and role are required'
-      });
-    }
+//     const validRoles = ['admin_a', 'admin_b', 'admin_c'];
+//     if (!validRoles.includes(role)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Invalid role. Must be admin_a, admin_b, or admin_c'
+//       });
+//     }
+//     const existingUser = await pool.query(
+//       'SELECT id FROM users WHERE email = $1',
+//       [email]
+//     );
 
-    const validRoles = ['admin_a', 'admin_b', 'admin_c'];
-    if (!validRoles.includes(role)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid role. Must be admin_a, admin_b, or admin_c'
-      });
-    }
-    const existingUser = await pool.query(
-      'SELECT id FROM users WHERE email = $1',
-      [email]
-    );
+//     if (existingUser.rows.length > 0) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'User already exists with this email'
+//       });
+//     }
+//     const hashedPassword = await hashPassword(password);
+//     const is_active = role === 'admin_a' ? false : true;
+//     const newUser = await pool.query(
+//       `INSERT INTO users 
+//        (email, password_hash, first_name, last_name, phone, company_name, role, is_active) 
+//        VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
+//        RETURNING id, email, first_name, last_name, phone, company_name, role, is_active, created_at`,
+//       [email, hashedPassword, first_name, last_name, phone, company_name, role, is_active]
+//     );
+//   const user = newUser.rows[0];
+//     const token = generateToken(user);
+//     // const token = generateToken(newUser.rows[0]);
 
-    if (existingUser.rows.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'User already exists with this email'
-      });
-    }
-    const hashedPassword = await hashPassword(password);
-    const is_active = role === 'admin_a' ? false : true;
-    const newUser = await pool.query(
-      `INSERT INTO users 
-       (email, password_hash, first_name, last_name, phone, company_name, role, is_active) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
-       RETURNING id, email, first_name, last_name, phone, company_name, role, is_active, created_at`,
-      [email, hashedPassword, first_name, last_name, phone, company_name, role, is_active]
-    );
+//         if (role === 'admin_a') {
+//       // Send pending approval email to user
+//       await sendEmail(emailTemplates.registrationPending(user));
+      
+//       // Notify admins about new pending registration
+//       await sendEmail(emailTemplates.adminNotification(user));
+      
+//       console.log(`📧 Pending approval emails sent for ${email}`);
+//     } else {
+//       // Send welcome email for auto-approved users
+//       await sendEmail(emailTemplates.registrationSuccess(user));
+//       console.log(`📧 Welcome email sent for ${email}`);
+//     }
 
-    const token = generateToken(newUser.rows[0]);
 
-    res.status(201).json({
-      success: true,
-      message: role === 'admin_a' 
-        ? 'Sub Consultant application submitted successfully. Awaiting admin approval.' 
-        : 'User registered successfully',
-      data: {
-        user: newUser.rows[0],
-        token
-      }
-    });
+//     res.status(201).json({
+//       success: true,
+//       message: role === 'admin_a' 
+//         ? 'Sub Consultant application submitted successfully. Awaiting admin approval.' 
+//         : 'User registered successfully',
+//       data: {
+//         user,
+//         token
+//       }
+//     });
 
-  } catch (error) {
-    console.error('Registration error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error during registration'
-    });
-  }
-};
+//   } catch (error) {
+//     console.error('Registration error:', error);
+//     res.status(500).json({
+//       success: false,
+//       message: 'Server error during registration'
+//     });
+//   }
+// };
 
 
 
@@ -147,6 +163,100 @@ const login = async (req, res) => {
     });
   }
 };
+
+const register = async (req, res) => {
+  try {
+    const { email, password, first_name, last_name, phone, company_name, role } = req.body;
+    
+    if (!email || !password || !role) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email, password, and role are required'
+      });
+    }
+
+    const validRoles = ['admin_a', 'admin_b', 'admin_c'];
+    if (!validRoles.includes(role)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid role. Must be admin_a, admin_b, or admin_c'
+      });
+    }
+
+    const existingUser = await pool.query(
+      'SELECT id FROM users WHERE email = $1',
+      [email]
+    );
+
+    if (existingUser.rows.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'User already exists with this email'
+      });
+    }
+
+    const hashedPassword = await hashPassword(password);
+    const is_active = role === 'admin_a' ? false : true;
+    
+    const newUser = await pool.query(
+      `INSERT INTO users 
+       (email, password_hash, first_name, last_name, phone, company_name, role, is_active) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
+       RETURNING id, email, first_name, last_name, phone, company_name, role, is_active, created_at`,
+      [email, hashedPassword, first_name, last_name, phone, company_name, role, is_active]
+    );
+
+    const user = newUser.rows[0];
+    const token = generateToken(user);
+
+    // 🚀 SEND EMAILS - BOTH SHOULD WORK NOW
+    if (role === 'admin_a') {
+      try {
+        // 1. Send email to user (pending approval)
+        await emailTemplates.registrationPending(user);
+        console.log(`✅ User email sent to: ${user.email}`);
+        
+        // 2. Send email to admin (notification)
+        if (process.env.ADMIN_EMAIL) {
+          await emailTemplates.adminNotification(user);
+          console.log(`✅ Admin notification sent to: ${process.env.ADMIN_EMAIL}`);
+        } else {
+          console.log('❌ ADMIN_EMAIL not set in .env file');
+        }
+      } catch (emailError) {
+        console.error('❌ Email sending error:', emailError.message);
+        // Don't fail registration if email fails
+      }
+    } else {
+      // Send welcome email for auto-approved users
+      try {
+        await emailTemplates.welcome(user.email, `${user.first_name} ${user.last_name}`);
+        console.log(`✅ Welcome email sent to: ${user.email}`);
+      } catch (emailError) {
+        console.error('❌ Welcome email error:', emailError.message);
+      }
+    }
+
+    res.status(201).json({
+      success: true,
+      message: role === 'admin_a' 
+        ? 'Sub Consultant application submitted successfully. Awaiting admin approval.' 
+        : 'User registered successfully',
+      data: {
+        user,
+        token
+      }
+    });
+
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error during registration'
+    });
+  }
+};
+
 
 // Get User Profile (Protected)
 const getProfile = async (req, res) => {
@@ -362,7 +472,7 @@ const updateUserStatus = async (req, res) => {
 
     // Check if user exists
     const userCheck = await pool.query(
-      'SELECT id, role FROM users WHERE id = $1',
+      'SELECT id, role, email, first_name, last_name FROM users WHERE id = $1',
       [id]
     );
 
@@ -384,8 +494,23 @@ const updateUserStatus = async (req, res) => {
       [is_active, id]
     );
 
-    const action = is_active ? 'approved' : 'deactivated';
+    const action = is_active ? 'approved' : 'rejected';
     
+    // 🚀 Send email notification to the user
+    try {
+      // Import emailTemplates inside the function to avoid circular dependencies
+      const { emailTemplates } = require('../../services/emailService');
+      
+      // Only send approval/rejection emails for admin_a users
+      if (user.role === 'admin_a') {
+        await emailTemplates.approvalStatus(user, action);
+        console.log(`📧 ${action} email sent to ${user.email}`);
+      }
+    } catch (emailError) {
+      // Log email error but don't fail the status update
+      console.error('⚠️ Failed to send status update email:', emailError.message);
+    }
+
     res.json({
       success: true,
       message: `User ${action} successfully`,

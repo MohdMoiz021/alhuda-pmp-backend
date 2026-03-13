@@ -78,7 +78,7 @@ const express = require('express');
 const { register, login, getProfile, updateProfile, getAllUsers, getUserById, getPendingSubConsultants, updateUserStatus, deleteUser } = require('../controllers/auth.controller');
 const { authenticate } = require('../../middleware/auth');
 const db = require('../../db');
-
+const { emailTemplates } = require('../../services/emailService');
 // In Express 5, router is not a separate function
 const authRoutes = express();
 
@@ -146,27 +146,93 @@ authRoutes.put('/users/:id/approve', async (req, res) => {
     // Determine is_active value
     const isActive = action === 'approve';
 
-    const query = `
-      UPDATE users
-      SET is_active = $1, updated_at = NOW()
-      WHERE id = $2
-      RETURNING id, first_name, email, is_active
+    // First, get the user details before updating
+    const getUserQuery = `
+      SELECT id, first_name, last_name, email, role, phone, company_name
+      FROM users 
+      WHERE id = $1
     `;
-    const values = [isActive, userId];
-
-    const result = await db.query(query, values);
-
-    if (result.rows.length === 0) {
+    const userResult = await db.query(getUserQuery, [userId]);
+    
+    if (userResult.rows.length === 0) {
       return res.status(404).json({ 
         success: false, 
         message: 'User not found' 
       });
     }
 
+    const userData = userResult.rows[0];
+
+    // Update user status
+    const updateQuery = `
+      UPDATE users
+      SET is_active = $1, updated_at = NOW()
+      WHERE id = $2
+      RETURNING id, first_name, last_name, email, is_active, role, phone, company_name
+    `;
+    const values = [isActive, userId];
+
+    const updateResult = await db.query(updateQuery, values);
+
+    if (updateResult.rows.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      });
+    }
+
+    const updatedUser = updateResult.rows[0];
+
+    // 📧 SEND EMAILS ONLY FOR APPROVAL ACTION
+    if (action === 'approve') {
+      try {
+        // 1. Send email to the approved user (Sub Consultant)
+        await emailTemplates.approvalStatus(
+          updatedUser,
+          'approved'
+        );
+        console.log(`✅ Approval email sent to sub consultant: ${updatedUser.email}`);
+
+        // 2. Get all admin users (admin_a and admin_c) to notify them
+        const adminQuery = `
+          SELECT id, first_name, last_name, email, role
+          FROM users
+          WHERE role IN ('admin_a', 'admin_c') 
+          AND is_active = true
+          AND id != $1  -- Exclude the current user if they are admin (unlikely)
+        `;
+        const adminResult = await db.query(adminQuery, [userId]);
+        const adminUsers = adminResult.rows;
+
+        console.log(`📋 Found ${adminUsers.length} admins to notify`);
+
+        // 3. Send notification to each admin
+        if (adminUsers.length > 0) {
+          const adminNotificationPromises = adminUsers.map(admin => 
+            emailTemplates.adminNotificationForApproval(updatedUser, admin)
+              .catch(err => {
+                console.error(`❌ Failed to send notification to admin ${admin.email}:`, err.message);
+                return null; // Continue with other admins even if one fails
+              })
+          );
+
+          await Promise.all(adminNotificationPromises);
+          console.log(`✅ Admin notifications sent to ${adminUsers.length} admins`);
+        } else {
+          console.log('⚠️ No active admin users found to notify');
+        }
+
+      } catch (emailError) {
+        // Log email error but don't fail the request
+        console.error('❌ Error sending approval emails:', emailError);
+      }
+    }
+
     res.status(200).json({
       success: true,
       message: `User has been ${action}d successfully`,
-      user: result.rows[0]
+      user: updatedUser,
+      emailsSent: action === 'approve' ? true : false
     });
 
   } catch (error) {

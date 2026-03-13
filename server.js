@@ -11,6 +11,7 @@ const webbhookRoutes = require('./src/routes/webhookRoutes');
 const casesRoutes = require('./src/routes/case.routes');
 const twilioRoutes = require('./src/routes/twilioRoutes');
 const teamRoutes = require('./src/routes/team.routes');
+const emailRoutes = require('./src/routes/emailRoutes');
 const http = require('http');
 const { Server } = require('socket.io');
 
@@ -70,7 +71,7 @@ app.use('/api/twilio', twilioRoutes);
 app.use('/api/webhook', webbhookRoutes);
 app.use('/api/cases', casesRoutes);
 app.use('/api/team', teamRoutes);
-
+app.use('/api/email', emailRoutes);
 // Request logging
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
