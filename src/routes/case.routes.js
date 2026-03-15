@@ -698,11 +698,14 @@ router.get('/:caseId/assignees', authenticate, async (req, res) => {
  * POST /api/cases/:caseId/assign
  * Assign a case to a team member
  */
+
+
 router.post('/:caseId/assign', authenticate, async (req, res) => {
   try {
     const { caseId } = req.params;
     const { assigned_to, assigned_name, assigned_role } = req.body;
     const assigned_by = req.user.id; // From auth middleware
+    const assigned_by_name = req.user.name || req.user.first_name + ' ' + req.user.last_name || 'Admin';
 
     // Validate input
     if (!assigned_to) {
@@ -714,6 +717,57 @@ router.post('/:caseId/assign', authenticate, async (req, res) => {
 
     // Start transaction for data consistency
     await db.query('BEGIN');
+
+    // First, get the case details and assigned user details before updating
+    const caseDetailsQuery = `
+      SELECT 
+        c.id,
+        c.case_reference,
+        c.case_type,
+        c.case_sub_type,
+        c.description,
+        c.priority,
+        c.partner_name,
+        c.partner_email,
+        c.status,
+        u.email as assigner_email,
+        u.first_name as assigner_first_name,
+        u.last_name as assigner_last_name
+      FROM case_updated c
+      LEFT JOIN users u ON u.id = $2
+      WHERE c.id = $1
+    `;
+    
+    const caseDetailsResult = await db.query(caseDetailsQuery, [caseId, assigned_by]);
+    
+    if (caseDetailsResult.rows.length === 0) {
+      await db.query('ROLLBACK');
+      return res.status(404).json({
+        success: false,
+        message: 'Case not found'
+      });
+    }
+    
+    const caseData = caseDetailsResult.rows[0];
+
+    // Get assigned user details
+    const assignedUserQuery = `
+      SELECT id, first_name, last_name, email, role
+      FROM users
+      WHERE id = $1 AND is_active = true
+    `;
+    
+    const assignedUserResult = await db.query(assignedUserQuery, [assigned_to]);
+    
+    if (assignedUserResult.rows.length === 0) {
+      await db.query('ROLLBACK');
+      return res.status(400).json({
+        success: false,
+        message: 'Assigned user not found or inactive'
+      });
+    }
+    
+    const assignedUser = assignedUserResult.rows[0];
 
     // Update the case with new assignment
     const updateQuery = `
@@ -733,13 +787,17 @@ router.post('/:caseId/assign', authenticate, async (req, res) => {
         assigned_role,
         assigned_at,
         partner_name,
-        status
+        partner_email,
+        status,
+        case_type,
+        case_sub_type,
+        priority
     `;
 
     const updateResult = await db.query(updateQuery, [
       assigned_to, 
-      assigned_name || null, 
-      assigned_role || null, 
+      assigned_name || assignedUser.first_name + ' ' + assignedUser.last_name, 
+      assigned_role || assignedUser.role, 
       caseId
     ]);
 
@@ -753,7 +811,7 @@ router.post('/:caseId/assign', authenticate, async (req, res) => {
 
     const updatedCase = updateResult.rows[0];
 
-    // Optional: Log assignment in activity log
+    // Log assignment in activity log
     const logQuery = `
       INSERT INTO case_activity_log (
         case_id,
@@ -770,17 +828,81 @@ router.post('/:caseId/assign', authenticate, async (req, res) => {
       'ASSIGNED',
       JSON.stringify({
         assigned_to,
-        assigned_name,
-        assigned_role,
-        previous_assignee: null // You could fetch previous if needed
+        assigned_name: updatedCase.assigned_name,
+        assigned_role: updatedCase.assigned_role,
+        previous_assignee: null
       })
     ]);
 
     await db.query('COMMIT');
 
+    // 📧 SEND EMAIL NOTIFICATIONS
+    try {
+      // 1. Send email to the assigned team member
+      if (assignedUser.email) {
+        await emailTemplates.caseAssignedToTeamMember({
+          team_member_name: assignedUser.first_name || 'Team Member',
+          team_member_email: assignedUser.email,
+          case_reference: updatedCase.case_reference,
+          case_type: updatedCase.case_type,
+          case_sub_type: updatedCase.case_sub_type,
+          description: caseData.description,
+          priority: updatedCase.priority,
+          partner_name: updatedCase.partner_name,
+          assigned_by_name: assigned_by_name,
+          assigned_date: new Date().toLocaleString(),
+          case_id: updatedCase.id
+        });
+        console.log(`✅ Assignment email sent to team member: ${assignedUser.email}`);
+      }
+
+      // 2. Get all admin users (admin_a and admin_c) to notify them
+      const adminQuery = `
+        SELECT id, first_name, last_name, email, role
+        FROM users
+        WHERE role IN ('admin_a', 'admin_c') 
+        AND is_active = true
+        AND id != $1  -- Exclude the assigner if they are admin
+      `;
+      const adminResult = await db.query(adminQuery, [assigned_by]);
+      const adminUsers = adminResult.rows;
+
+      // 3. Send notification to each admin
+      if (adminUsers.length > 0) {
+        const adminNotificationPromises = adminUsers.map(admin => 
+          emailTemplates.caseAssignedNotificationToAdmin({
+            admin_name: admin.first_name || 'Admin',
+            admin_email: admin.email,
+            case_reference: updatedCase.case_reference,
+            case_type: updatedCase.case_type,
+            case_sub_type: updatedCase.case_sub_type,
+            priority: updatedCase.priority,
+            partner_name: updatedCase.partner_name,
+            assigned_to_name: updatedCase.assigned_name,
+            assigned_to_role: updatedCase.assigned_role,
+            assigned_by_name: assigned_by_name,
+            assigned_date: new Date().toLocaleString(),
+            case_id: updatedCase.id
+          }).catch(err => {
+            console.error(`❌ Failed to send notification to admin ${admin.email}:`, err.message);
+            return null;
+          })
+        );
+
+        await Promise.all(adminNotificationPromises);
+        console.log(`✅ Admin notifications sent to ${adminUsers.length} admins`);
+      } else {
+        console.log('⚠️ No active admin users found to notify');
+      }
+
+    } catch (emailError) {
+      // Log email error but don't fail the request
+      console.error('❌ Error sending assignment emails:', emailError);
+    }
+
     res.json({
       success: true,
-      message: `Case assigned to ${assigned_name || 'team member'} successfully`,
+      message: `Case assigned to ${updatedCase.assigned_name || 'team member'} successfully`,
       case: {
         id: updatedCase.id,
         case_reference: updatedCase.case_reference,
@@ -1616,8 +1738,6 @@ router.get('/financial-summary', async (req, res) => {
 //   }
 // });
 
-
-
 router.post('/', upload.any(), uploadToS3, async (req, res) => {
   try {
     const formData = req.body;
@@ -1714,9 +1834,9 @@ router.post('/', upload.any(), uploadToS3, async (req, res) => {
     const result = await db.query(query, values);
     const insertedCase = result.rows[0];
 
-    // 📧 SEND EMAIL NOTIFICATIONS
+    // 📧 SEND EMAIL NOTIFICATIONS - FIXED: Only one admin email
     try {
-      // 1. Send email to the partner/sub consultant (using partner_email)
+      // 1. Send email to the partner/sub consultant
       if (partner_email) {
         await emailTemplates.caseSubmittedToPartner({
           partner_name: partner_name || 'Valued Partner',
@@ -1732,43 +1852,25 @@ router.post('/', upload.any(), uploadToS3, async (req, res) => {
         console.log(`✅ Case submission email sent to partner: ${partner_email}`);
       }
 
-      // 2. Get all admin users (admin_a and admin_c) to notify them
-      const adminQuery = `
-        SELECT id, first_name, last_name, email, role
-        FROM users
-        WHERE role IN ('admin_a', 'admin_c') 
-        AND is_active = true
-      `;
-      const adminResult = await db.query(adminQuery);
-      const adminUsers = adminResult.rows;
-
-      // 3. Send notification to each admin
-      if (adminUsers.length > 0) {
-        const adminNotificationPromises = adminUsers.map(admin => 
-          emailTemplates.newCaseNotificationToAdmin({
-            admin_name: admin.first_name || 'Admin',
-            admin_email: admin.email,
-            partner_name: partner_name || 'A partner',
-            partner_email: partner_email,
-            case_reference: insertedCase.case_reference,
-            case_type: insertedCase.case_type,
-            case_sub_type: insertedCase.case_sub_type,
-            description: insertedCase.description,
-            priority: insertedCase.priority,
-            submitted_date: new Date().toLocaleString(),
-            document_count: s3_documents.length,
-            case_id: insertedCase.id
-          }).catch(err => {
-            console.error(`❌ Failed to send notification to admin ${admin.email}:`, err.message);
-            return null;
-          })
-        );
-
-        await Promise.all(adminNotificationPromises);
-        console.log(`✅ Admin notifications sent to ${adminUsers.length} admins`);
-      } else {
-        console.log('⚠️ No active admin users found to notify');
-      }
+      // 2. Send ONLY ONE email to the admin - NO LOOP, HARDCODED EMAIL
+      const ADMIN_EMAIL = 'tech@alhudafinancial.com'; // Your single admin email
+      
+      await emailTemplates.newCaseNotificationToAdmin({
+        admin_name: 'Admin',
+        admin_email: ADMIN_EMAIL,
+        partner_name: partner_name || 'A partner',
+        partner_email: partner_email,
+        case_reference: insertedCase.case_reference,
+        case_type: insertedCase.case_type,
+        case_sub_type: insertedCase.case_sub_type,
+        description: insertedCase.description,
+        priority: insertedCase.priority,
+        submitted_date: new Date().toLocaleString(),
+        document_count: s3_documents.length,
+        case_id: insertedCase.id
+      });
+      
+      console.log(`✅ Admin notification sent to: ${ADMIN_EMAIL}`);
 
     } catch (emailError) {
       // Log email error but don't fail the request

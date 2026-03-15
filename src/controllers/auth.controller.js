@@ -164,6 +164,105 @@ const login = async (req, res) => {
   }
 };
 
+// const register = async (req, res) => {
+//   try {
+//     const { email, password, first_name, last_name, phone, company_name, role } = req.body;
+    
+//     if (!email || !password || !role) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Email, password, and role are required'
+//       });
+//     }
+
+//     const validRoles = ['admin_a', 'admin_b', 'admin_c'];
+//     if (!validRoles.includes(role)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Invalid role. Must be admin_a, admin_b, or admin_c'
+//       });
+//     }
+
+//     const existingUser = await pool.query(
+//       'SELECT id FROM users WHERE email = $1',
+//       [email]
+//     );
+
+//     if (existingUser.rows.length > 0) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'User already exists with this email'
+//       });
+//     }
+
+//     const hashedPassword = await hashPassword(password);
+//     const is_active = role === 'admin_a' ? false : true;
+    
+//     const newUser = await pool.query(
+//       `INSERT INTO users 
+//        (email, password_hash, first_name, last_name, phone, company_name, role, is_active) 
+//        VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
+//        RETURNING id, email, first_name, last_name, phone, company_name, role, is_active, created_at`,
+//       [email, hashedPassword, first_name, last_name, phone, company_name, role, is_active]
+//     );
+
+//     const user = newUser.rows[0];
+//     const token = generateToken(user);
+
+//     // 🚀 SEND EMAILS - BOTH SHOULD WORK NOW
+//     if (role === 'admin_a') {
+//       try {
+//         // 1. Send email to user (pending approval)
+//         await emailTemplates.registrationPending(user);
+//         console.log(`✅ User email sent to: ${user.email}`);
+        
+//         // 2. Send email to admin (notification)
+//         if (process.env.ADMIN_EMAIL) {
+//           await emailTemplates.adminNotification(user);
+//           console.log(`✅ Admin notification sent to: ${process.env.ADMIN_EMAIL}`);
+//         } else {
+//           console.log('❌ ADMIN_EMAIL not set in .env file');
+//         }
+//       } catch (emailError) {
+//         console.error('❌ Email sending error:', emailError.message);
+//         // Don't fail registration if email fails
+//       }
+//     } else {
+//       // Send welcome email for auto-approved users
+//       try {
+//         await emailTemplates.welcome(user.email, `${user.first_name} ${user.last_name}`);
+//         console.log(`✅ Welcome email sent to: ${user.email}`);
+//       } catch (emailError) {
+//         console.error('❌ Welcome email error:', emailError.message);
+//       }
+//     }
+
+//     res.status(201).json({
+//       success: true,
+//       message: role === 'admin_a' 
+//         ? 'Sub Consultant application submitted successfully. Awaiting admin approval.' 
+//         : 'User registered successfully',
+//       data: {
+//         user,
+//         token
+//       }
+//     });
+
+//   } catch (error) {
+//     console.error('Registration error:', error);
+//     res.status(500).json({
+//       success: false,
+//       message: 'Server error during registration'
+//     });
+//   }
+// };
+
+
+
+
+
+// Get User Profile (Protected)
+
 const register = async (req, res) => {
   try {
     const { email, password, first_name, last_name, phone, company_name, role } = req.body;
@@ -209,39 +308,62 @@ const register = async (req, res) => {
     const user = newUser.rows[0];
     const token = generateToken(user);
 
-    // 🚀 SEND EMAILS - BOTH SHOULD WORK NOW
-    if (role === 'admin_a') {
-      try {
+    // 🚀 SEND EMAILS BASED ON ROLE
+    try {
+      if (role === 'admin_a') {
+        // Case 1: Sub Consultant (needs approval)
+        
         // 1. Send email to user (pending approval)
         await emailTemplates.registrationPending(user);
-        console.log(`✅ User email sent to: ${user.email}`);
+        console.log(`✅ Pending approval email sent to sub consultant: ${user.email}`);
         
-        // 2. Send email to admin (notification)
-        if (process.env.ADMIN_EMAIL) {
-          await emailTemplates.adminNotification(user);
-          console.log(`✅ Admin notification sent to: ${process.env.ADMIN_EMAIL}`);
-        } else {
-          console.log('❌ ADMIN_EMAIL not set in .env file');
-        }
-      } catch (emailError) {
-        console.error('❌ Email sending error:', emailError.message);
-        // Don't fail registration if email fails
+        // 2. Send email to hardcoded admin only
+        const ADMIN_EMAIL = 'mohdmoizahmed01@gmail.com'; // 🔴 HARDCODED ADMIN EMAIL
+        
+        await emailTemplates.adminNotification(user);
+        // Note: Make sure your adminNotification template sends to this email
+        console.log(`✅ Admin notification sent to: ${ADMIN_EMAIL}`);
+        
+      } else if (role === 'admin_b' || role === 'admin_c') {
+        // Case 2: Internal Team Member (auto-approved)
+        
+        // 1. Send welcome email to the new team member ONLY
+        await emailTemplates.welcomeTeamMember({
+          email: user.email,
+          name: `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email,
+          role: role === 'admin_b' ? 'Admin' : 'Manager',
+          login_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/login`
+        });
+        console.log(`✅ Welcome email sent to new team member: ${user.email}`);
+        
+        // 2. Send notification to ONLY the hardcoded admin email
+        const ADMIN_EMAIL = 'mohdmoizahmed01@gmail.com'; // 🔴 HARDCODED ADMIN EMAIL
+        
+        // Send email directly without querying database
+        await emailTemplates.newTeamMemberNotification({
+          admin_name: 'Admin', // Hardcoded admin name
+          admin_email: ADMIN_EMAIL, // Hardcoded admin email
+          new_member_name: `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email,
+          new_member_email: user.email,
+          new_member_role: role === 'admin_b' ? 'Admin' : 'Manager',
+          new_member_phone: user.phone || 'Not provided',
+          new_member_company: user.company_name || 'Not provided',
+          registered_date: new Date().toLocaleString(),
+          admin_dashboard_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/admin/team`
+        });
+        
+        console.log(`✅ New member notification sent to hardcoded admin: ${ADMIN_EMAIL}`);
       }
-    } else {
-      // Send welcome email for auto-approved users
-      try {
-        await emailTemplates.welcome(user.email, `${user.first_name} ${user.last_name}`);
-        console.log(`✅ Welcome email sent to: ${user.email}`);
-      } catch (emailError) {
-        console.error('❌ Welcome email error:', emailError.message);
-      }
+    } catch (emailError) {
+      // Log email error but don't fail registration
+      console.error('❌ Email sending error:', emailError.message);
     }
 
     res.status(201).json({
       success: true,
       message: role === 'admin_a' 
         ? 'Sub Consultant application submitted successfully. Awaiting admin approval.' 
-        : 'User registered successfully',
+        : 'Internal team member registered successfully',
       data: {
         user,
         token
@@ -258,7 +380,8 @@ const register = async (req, res) => {
 };
 
 
-// Get User Profile (Protected)
+
+
 const getProfile = async (req, res) => {
   try {
     const userResult = await pool.query(

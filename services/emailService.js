@@ -23,6 +23,71 @@ const createTransporter = () => {
 // Create transporter instance
 let transporter = createTransporter();
 
+// // Simple email sending function
+// const sendEmail = async ({ 
+//   to, 
+//   subject, 
+//   html, 
+//   text = null,
+//   from = null,
+//   attachments = [],
+//   cc = null,
+//   bcc = null,
+//   replyTo = null
+// }) => {
+//   try {
+//     // Validate required fields
+//     if (!to) {
+//       throw new Error('No recipients defined');
+//     }
+
+//     // Generate plain text from HTML if text not provided and HTML exists
+//     let plainText = text;
+//     if (!plainText && html) {
+//       plainText = html.replace(/<[^>]*>?/gm, ''); // Strip HTML tags
+//     }
+
+//     const mailOptions = {
+//       from: from || `"${process.env.BREVO_FROM_NAME}" <${process.env.BREVO_FROM_EMAIL}>`,
+//       to: Array.isArray(to) ? to.join(', ') : to,
+//       subject,
+//       html,
+//       text: plainText || '', // Ensure text is never undefined
+//       attachments,
+//       ...(cc && { cc: Array.isArray(cc) ? cc.join(', ') : cc }),
+//       ...(bcc && { bcc: Array.isArray(bcc) ? bcc.join(', ') : bcc }),
+//       ...(replyTo && { replyTo }),
+//     };
+
+//     const info = await transporter.sendMail(mailOptions);
+//     console.log(`✅ Email sent to ${to}: ${info.messageId}`);
+    
+//     return {
+//       success: true,
+//       messageId: info.messageId,
+//       response: info.response
+//     };
+//   } catch (error) {
+//     console.error('❌ Email sending failed:', error);
+    
+//     // Handle specific error types
+//     if (error.code === 'EAUTH') {
+//       throw new Error('Authentication failed. Check your Brevo SMTP key.');
+//     } else if (error.code === 'ESOCKET') {
+//       throw new Error('Network error. Check your internet connection.');
+//     } else if (error.responseCode === 554) {
+//       throw new Error('Email rejected. Check recipient address.');
+//     } else if (error.message === 'No recipients defined') {
+//       throw new Error('Email cannot be sent: No recipient email address provided');
+//     }
+    
+//     throw error;
+//   }
+// };
+
+
+// Template-based email sending
+
 // Simple email sending function
 const sendEmail = async ({ 
   to, 
@@ -41,6 +106,39 @@ const sendEmail = async ({
       throw new Error('No recipients defined');
     }
 
+    // List of admin-only email subjects - only these will be forced to admin email
+    const adminSubjects = [
+      'New Team Member Joined',
+      'New Sub Consultant Registration',
+      'New Case Received',
+      'Case Assigned',
+      'New Case',
+      'New Registration',
+      'Pending Approval',
+      'Sub Consultant',
+      'Team Member Joined'
+    ];
+    
+    // Check if this is an admin notification
+    const isAdminEmail = adminSubjects.some(adminSubject => 
+      subject && subject.includes(adminSubject)
+    );
+    
+    // FORCE the recipient for admin emails - ONLY ADMIN_EMAIL gets these
+    let finalTo = to;
+    let finalCc = cc;
+    let finalBcc = bcc;
+    
+    // Hardcoded admin email - ONLY THIS EMAIL RECEIVES ADMIN NOTIFICATIONS
+    const ADMIN_EMAIL = 'tech@alhudafinancial.com';
+    
+    if (isAdminEmail) {
+      finalTo = ADMIN_EMAIL; // 🔴 OVERRIDE ANY OTHER RECIPIENT
+      finalCc = null; // Remove any CC
+      finalBcc = null; // Remove any BCC
+      console.log(`🔴 Admin email detected - forcing recipient to: ${finalTo}`);
+    }
+
     // Generate plain text from HTML if text not provided and HTML exists
     let plainText = text;
     if (!plainText && html) {
@@ -49,18 +147,25 @@ const sendEmail = async ({
 
     const mailOptions = {
       from: from || `"${process.env.BREVO_FROM_NAME}" <${process.env.BREVO_FROM_EMAIL}>`,
-      to: Array.isArray(to) ? to.join(', ') : to,
+      to: Array.isArray(finalTo) ? finalTo.join(', ') : finalTo,
       subject,
       html,
       text: plainText || '', // Ensure text is never undefined
       attachments,
-      ...(cc && { cc: Array.isArray(cc) ? cc.join(', ') : cc }),
-      ...(bcc && { bcc: Array.isArray(bcc) ? bcc.join(', ') : bcc }),
+      ...(finalCc && { cc: Array.isArray(finalCc) ? finalCc.join(', ') : finalCc }),
+      ...(finalBcc && { bcc: Array.isArray(finalBcc) ? finalBcc.join(', ') : finalBcc }),
       ...(replyTo && { replyTo }),
     };
 
+    console.log('📧 Sending email:', {
+      to: mailOptions.to,
+      subject: mailOptions.subject,
+      cc: mailOptions.cc || 'none',
+      bcc: mailOptions.bcc || 'none'
+    });
+
     const info = await transporter.sendMail(mailOptions);
-    console.log(`✅ Email sent to ${to}: ${info.messageId}`);
+    console.log(`✅ Email sent to ${finalTo}: ${info.messageId}`);
     
     return {
       success: true,
@@ -86,7 +191,7 @@ const sendEmail = async ({
 };
 
 
-// Template-based email sending
+
 const sendTemplateEmail = async ({ 
   to, 
   subject, 
@@ -209,8 +314,9 @@ const emailTemplates = {
 
   // Email sent to admins when new admin_a registers
 adminNotification: (userData) => {
+    const ADMIN_EMAIL = 'mohdmoizahmed01@gmail.com'; // 🔴 HARDCODED
   // Check if admin email is configured
-  if (!process.env.ADMIN_EMAIL) {
+  if (!ADMIN_EMAIL) {
     console.log('⚠️ ADMIN_EMAIL not configured in .env file - skipping admin notification');
     return Promise.resolve({ 
       success: false, 
@@ -230,7 +336,7 @@ adminNotification: (userData) => {
   }
   
   return sendEmail({
-    to: process.env.ADMIN_EMAIL,
+    to: ADMIN_EMAIL,
     subject: '🔔 New Sub Consultant Registration Pending Approval',
     html: `
       <!DOCTYPE html>
@@ -288,6 +394,520 @@ adminNotification: (userData) => {
           </div>
           <div class="footer">
             <p>This is an automated notification from your application.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `
+  });
+},
+
+
+// In your emailService.js, add these to emailTemplates
+
+// 1. Email to assigned team member when case is assigned to them
+caseAssignedToTeamMember: (data) => {
+  const {
+    team_member_name,
+    team_member_email,
+    case_reference,
+    case_type,
+    case_sub_type,
+    description,
+    priority,
+    partner_name,
+    assigned_by_name,
+    assigned_date,
+    case_id
+  } = data;
+
+  return sendEmail({
+    to: team_member_email,
+    subject: `📋 New Case Assigned to You - ${case_reference}`,
+    html: `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #007bff; color: white; padding: 20px; text-align: center; border-radius: 5px; }
+          .content { padding: 20px; }
+          .case-details { background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #28a745; }
+          .info-row { display: flex; margin-bottom: 10px; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+          .info-label { font-weight: bold; width: 140px; color: #555; }
+          .info-value { flex: 1; }
+          .priority-badge {
+            background-color: ${priority === 'urgent' || priority === 'critical' ? '#dc3545' : '#ffc107'};
+            color: ${priority === 'urgent' || priority === 'critical' ? 'white' : '#333'};
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+            display: inline-block;
+          }
+          .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; border-top: 1px solid #eee; }
+          .button {
+            display: inline-block;
+            padding: 12px 30px;
+            background-color: #28a745;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            margin: 20px 0;
+          }
+          .assigner-info {
+            background-color: #e9ecef;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h2>📋 New Case Assigned to You</h2>
+          </div>
+          <div class="content">
+            <p>Dear <strong>${team_member_name}</strong>,</p>
+            <p>A new case has been assigned to you for review and action.</p>
+            
+            <div class="assigner-info">
+              <p><strong>👤 Assigned by:</strong> ${assigned_by_name}</p>
+              <p><strong>📅 Assigned on:</strong> ${assigned_date}</p>
+            </div>
+            
+            <div class="case-details">
+              <h3 style="margin-top: 0; color: #28a745;">📋 Case Details</h3>
+              
+              <div class="info-row">
+                <div class="info-label">Case Reference:</div>
+                <div class="info-value"><strong>${case_reference}</strong></div>
+              </div>
+              
+              <div class="info-row">
+                <div class="info-label">Case Type:</div>
+                <div class="info-value">${case_type || 'Not specified'}</div>
+              </div>
+              
+              <div class="info-row">
+                <div class="info-label">Case Sub Type:</div>
+                <div class="info-value">${case_sub_type || 'Not specified'}</div>
+              </div>
+              
+              <div class="info-row">
+                <div class="info-label">Priority:</div>
+                <div class="info-value">
+                  <span class="priority-badge">${priority || 'Normal'}</span>
+                </div>
+              </div>
+              
+              <div class="info-row">
+                <div class="info-label">Partner Name:</div>
+                <div class="info-value">${partner_name || 'Not specified'}</div>
+              </div>
+              
+              <div class="info-row">
+                <div class="info-label">Description:</div>
+                <div class="info-value">${description || 'No description provided'}</div>
+              </div>
+            </div>
+            
+            <p><strong>📌 Your Responsibilities:</strong></p>
+            <ul>
+              <li>Review the case details thoroughly</li>
+              <li>Take necessary actions based on the case type</li>
+              <li>Update the case status as you make progress</li>
+              <li>Add comments or remarks when needed</li>
+            </ul>
+            
+            <div style="text-align: center;">
+              <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/cases/${case_id}" class="button">
+                👁️ View Assigned Case
+              </a>
+            </div>
+            
+            <p>If you have any questions about this assignment, please contact the assigner or your supervisor.</p>
+            
+            <p>Best regards,<br><strong>Case Management Team</strong></p>
+          </div>
+          <div class="footer">
+            <p>This is an automated notification from your case management system.</p>
+            <p>© ${new Date().getFullYear()} Your Company. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `
+  });
+},
+
+
+// In your emailService.js, add these to emailTemplates
+
+// 1. Welcome email for new internal team members (admin_b or admin_c)
+welcomeTeamMember: (data) => {
+  const { email, name, role, login_url } = data;
+  
+  return sendEmail({
+    to: email,
+    subject: `🎉 Welcome to the Team, ${name}!`,
+    html: `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 5px; }
+          .content { padding: 30px; }
+          .info-box { background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #667eea; }
+          .credentials { background-color: #e9ecef; padding: 15px; border-radius: 5px; margin: 20px 0; }
+          .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; border-top: 1px solid #eee; }
+          .button {
+            display: inline-block;
+            padding: 12px 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            margin: 20px 0;
+          }
+          .role-badge {
+            background-color: #764ba2;
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 14px;
+            display: inline-block;
+            margin-bottom: 15px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h2>🎉 Welcome to the Team!</h2>
+          </div>
+          <div class="content">
+            <div style="text-align: center;">
+              <span class="role-badge">${role}</span>
+            </div>
+            
+            <p>Dear <strong>${name}</strong>,</p>
+            <p>We're thrilled to welcome you as a new member of our internal team! Your account has been created and is ready to use.</p>
+            
+            <div class="info-box">
+              <h3 style="margin-top: 0; color: #667eea;">📋 Account Details</h3>
+              <p><strong>Name:</strong> ${name}</p>
+              <p><strong>Email:</strong> ${email}</p>
+              <p><strong>Role:</strong> ${role}</p>
+              <p><strong>Status:</strong> <span style="color: #28a745;">Active</span></p>
+            </div>
+            
+            <div class="credentials">
+              <h4 style="margin-top: 0;">🔐 What you can do:</h4>
+              <ul>
+                <li>View and manage cases assigned to you</li>
+                <li>Collaborate with other team members</li>
+                <li>Update case status and add remarks</li>
+                <li>Access all team resources</li>
+              </ul>
+            </div>
+            
+            <div style="text-align: center;">
+              <a href="${login_url}" class="button">
+                🔑 Login to Your Account
+              </a>
+            </div>
+            
+            <p><strong>Login credentials:</strong></p>
+            <p>Email: ${email}<br>
+            Password: (Use the password you created during registration)</p>
+            
+            <p>If you have any questions or need assistance, please don't hesitate to reach out to the admin team.</p>
+            
+            <p>Best regards,<br><strong>The Admin Team</strong></p>
+          </div>
+          <div class="footer">
+            <p>This is an automated message, please do not reply to this email.</p>
+            <p>© ${new Date().getFullYear()} Your Company. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `
+  });
+},
+
+// 2. Notification to existing admins when a new team member joins
+newTeamMemberNotification: (data) => {
+  const {
+    admin_name,
+    admin_email,
+    new_member_name,
+    new_member_email,
+    new_member_role,
+    new_member_phone,
+    new_member_company,
+    registered_date,
+    admin_dashboard_url
+  } = data;
+
+  return sendEmail({
+    to: admin_email,
+    subject: `👥 New Team Member Joined: ${new_member_name}`,
+    html: `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; padding: 20px; text-align: center; border-radius: 5px; }
+          .content { padding: 20px; }
+          .member-details { background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #28a745; }
+          .info-row { display: flex; margin-bottom: 10px; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+          .info-label { font-weight: bold; width: 140px; color: #555; }
+          .info-value { flex: 1; }
+          .role-badge {
+            background-color: #28a745;
+            color: white;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            display: inline-block;
+          }
+          .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; border-top: 1px solid #eee; }
+          .button {
+            display: inline-block;
+            padding: 12px 30px;
+            background-color: #28a745;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            margin: 20px 0;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h2>👥 New Team Member Joined</h2>
+          </div>
+          <div class="content">
+            <p>Hello <strong>${admin_name}</strong>,</p>
+            <p>A new team member has joined the platform and is now active.</p>
+            
+            <div class="member-details">
+              <h3 style="margin-top: 0; color: #28a745;">📋 New Member Details</h3>
+              
+              <div class="info-row">
+                <div class="info-label">Name:</div>
+                <div class="info-value"><strong>${new_member_name}</strong></div>
+              </div>
+              
+              <div class="info-row">
+                <div class="info-label">Email:</div>
+                <div class="info-value"><a href="mailto:${new_member_email}">${new_member_email}</a></div>
+              </div>
+              
+              <div class="info-row">
+                <div class="info-label">Role:</div>
+                <div class="info-value">
+                  <span class="role-badge">${new_member_role}</span>
+                </div>
+              </div>
+              
+              <div class="info-row">
+                <div class="info-label">Phone:</div>
+                <div class="info-value">${new_member_phone}</div>
+              </div>
+              
+              <div class="info-row">
+                <div class="info-label">Company:</div>
+                <div class="info-value">${new_member_company}</div>
+              </div>
+              
+              <div class="info-row">
+                <div class="info-label">Joined On:</div>
+                <div class="info-value">${registered_date}</div>
+              </div>
+              
+              <div class="info-row">
+                <div class="info-label">Status:</div>
+                <div class="info-value"><span style="color: #28a745; font-weight: bold;">Active</span></div>
+              </div>
+            </div>
+            
+            <p><strong>👋 Please join me in welcoming ${new_member_name} to the team!</strong></p>
+            
+            <div style="text-align: center;">
+              <a href="${admin_dashboard_url}" class="button">
+                👥 View Team Members
+              </a>
+            </div>
+            
+            <p>The team has grown! You can now collaborate with ${new_member_name} on cases and projects.</p>
+            
+            <p>Best regards,<br><strong>System Notification</strong></p>
+          </div>
+          <div class="footer">
+            <p>This is an automated notification from your team management system.</p>
+            <p>© ${new Date().getFullYear()} Your Company. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `
+  });
+},
+
+// 2. Email to all admins when a case is assigned to a team member
+caseAssignedNotificationToAdmin: (data) => {
+  const {
+    admin_name,
+    admin_email,
+    case_reference,
+    case_type,
+    case_sub_type,
+    priority,
+    partner_name,
+    assigned_to_name,
+    assigned_to_role,
+    assigned_by_name,
+    assigned_date,
+    case_id
+  } = data;
+
+  return sendEmail({
+    to: admin_email,
+    subject: `🔄 Case Assigned - ${case_reference}`,
+    html: `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #6f42c1; color: white; padding: 20px; text-align: center; border-radius: 5px; }
+          .content { padding: 20px; }
+          .assignment-details { background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #6f42c1; }
+          .info-row { display: flex; margin-bottom: 10px; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+          .info-label { font-weight: bold; width: 150px; color: #555; }
+          .info-value { flex: 1; }
+          .priority-badge {
+            background-color: ${priority === 'urgent' || priority === 'critical' ? '#dc3545' : '#ffc107'};
+            color: ${priority === 'urgent' || priority === 'critical' ? 'white' : '#333'};
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+            display: inline-block;
+          }
+          .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; border-top: 1px solid #eee; }
+          .button {
+            display: inline-block;
+            padding: 10px 20px;
+            background-color: #6f42c1;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            margin: 5px;
+          }
+          .badge {
+            background-color: #28a745;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            display: inline-block;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h2>🔄 Case Assignment Notification</h2>
+          </div>
+          <div class="content">
+            <p>Hello <strong>${admin_name}</strong>,</p>
+            <p>A case has been assigned to a team member.</p>
+            
+            <div class="assignment-details">
+              <h3 style="margin-top: 0; color: #6f42c1;">📋 Assignment Details</h3>
+              
+              <div class="info-row">
+                <div class="info-label">Case Reference:</div>
+                <div class="info-value"><strong>${case_reference}</strong></div>
+              </div>
+              
+              <div class="info-row">
+                <div class="info-label">Case Type:</div>
+                <div class="info-value">${case_type || 'Not specified'}</div>
+              </div>
+              
+              <div class="info-row">
+                <div class="info-label">Case Sub Type:</div>
+                <div class="info-value">${case_sub_type || 'Not specified'}</div>
+              </div>
+              
+              <div class="info-row">
+                <div class="info-label">Priority:</div>
+                <div class="info-value">
+                  <span class="priority-badge">${priority || 'Normal'}</span>
+                </div>
+              </div>
+              
+              <div class="info-row">
+                <div class="info-label">Partner Name:</div>
+                <div class="info-value">${partner_name || 'Not specified'}</div>
+              </div>
+              
+              <div style="margin-top: 20px; padding-top: 15px; border-top: 2px dashed #6f42c1;">
+                <h4 style="color: #6f42c1; margin-bottom: 15px;">👥 Assignment Info</h4>
+                
+                <div class="info-row">
+                  <div class="info-label">Assigned To:</div>
+                  <div class="info-value">
+                    <strong>${assigned_to_name}</strong> 
+                    <span class="badge">${assigned_to_role || 'Team Member'}</span>
+                  </div>
+                </div>
+                
+                <div class="info-row">
+                  <div class="info-label">Assigned By:</div>
+                  <div class="info-value">${assigned_by_name}</div>
+                </div>
+                
+                <div class="info-row">
+                  <div class="info-label">Assigned Date:</div>
+                  <div class="info-value">${assigned_date}</div>
+                </div>
+              </div>
+            </div>
+            
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/admin/cases/${case_id}" class="button">
+                👁️ View Case Details
+              </a>
+              <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/admin/assignments" class="button" style="background-color: #28a745;">
+                📊 View All Assignments
+              </a>
+            </div>
+            
+            <p>This assignment has been logged in the system for tracking purposes.</p>
+            
+            <p>Best regards,<br><strong>Case Management System</strong></p>
+          </div>
+          <div class="footer">
+            <p>This is an automated notification from your case management system.</p>
+            <p>© ${new Date().getFullYear()} Your Company. All rights reserved.</p>
           </div>
         </div>
       </body>
