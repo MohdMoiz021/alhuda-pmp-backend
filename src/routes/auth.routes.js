@@ -79,6 +79,7 @@ const { register, login, getProfile, updateProfile, getAllUsers, getUserById, ge
 const { authenticate } = require('../../middleware/auth');
 const db = require('../../db');
 const { emailTemplates } = require('../../services/emailService');
+const { resetPassword, forgotPassword, verifyResetToken } = require('../controllers/forgotPassword.controller');
 // In Express 5, router is not a separate function
 const authRoutes = express();
 
@@ -241,6 +242,67 @@ authRoutes.put('/users/:id/approve', async (req, res) => {
       success: false,
       message: 'Failed to update user status',
       error: error.message
+    });
+  }
+});
+
+authRoutes.post('/forgot-password', forgotPassword);
+authRoutes.post('/reset-password', resetPassword);
+authRoutes.get('/verify-reset-token/:token', verifyResetToken);
+authRoutes.get('/test-email-config', (req, res) => {
+  const config = {
+    host: process.env.BREVO_SMTP_HOST,
+    port: process.env.BREVO_SMTP_PORT,
+    user: process.env.BREVO_SMTP_LOGIN,
+    from_email: process.env.BREVO_FROM_EMAIL,
+    from_name: process.env.BREVO_FROM_NAME,
+    // Don't show the actual key
+    key_configured: !!process.env.BREVO_SMTP_KEY
+  };
+  
+  res.json({
+    success: true,
+    config: config
+  });
+});
+
+// In your auth routes file
+authRoutes.get('/verify-reset-token/:token', async (req, res) => {
+  try {
+    const { token } = req.params;
+    
+    const userResult = await pool.query(
+      `SELECT id, email, first_name, last_name 
+       FROM users 
+       WHERE reset_password_token = $1 
+         AND reset_password_expires > NOW() 
+         AND is_active = true`,
+      [token]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid or expired token'
+      });
+    }
+
+    const user = userResult.rows[0];
+    const userName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email;
+
+    res.status(200).json({
+      success: true,
+      message: 'Token is valid',
+      data: {
+        email: user.email,
+        name: userName
+      }
+    });
+  } catch (error) {
+    console.error('Verify token error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error during token verification'
     });
   }
 });

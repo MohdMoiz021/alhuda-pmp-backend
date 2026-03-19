@@ -8,6 +8,7 @@ const createTransporter = () => {
   return nodemailer.createTransport({
     host: process.env.BREVO_SMTP_HOST,
     port: parseInt(process.env.BREVO_SMTP_PORT),
+    user: process.env.BREVO_SMTP_LOGIN,
     secure: false, // true for 465, false for 587
     auth: {
       user: process.env.BREVO_SMTP_USER,
@@ -309,6 +310,152 @@ const emailTemplates = {
         </body>
         </html>
       `
+    });
+  },
+
+// In emailService.js - Fix the passwordReset function
+// In emailService.js - make sure this function exists and is correct
+passwordReset: async ({ email, name, resetLink, role }) => {
+  // Validate inputs
+  if (!email) {
+    throw new Error('Email address is required for password reset');
+  }
+
+  console.log('📧 Preparing password reset email for:', email);
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Reset Your Password</title>
+      <style>
+        body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background-color: #f4f4f7; }
+        .container { max-width: 600px; margin: 20px auto; background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 20px; text-align: center; }
+        .header h1 { color: white; margin: 0; font-size: 28px; font-weight: 600; }
+        .content { padding: 40px 30px; background: white; }
+        .button { display: inline-block; padding: 14px 30px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; text-decoration: none; border-radius: 8px; font-weight: 600; margin: 20px 0; letter-spacing: 0.5px; }
+        .footer { padding: 30px; text-align: center; background: #f8fafc; color: #64748b; font-size: 14px; }
+        .token-box { background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin: 20px 0; font-family: monospace; font-size: 14px; word-break: break-all; }
+        .warning { color: #e53e3e; font-size: 14px; margin-top: 20px; padding: 10px; background: #fff5f5; border-radius: 8px; }
+        .role-badge { display: inline-block; padding: 4px 12px; background: #e2e8f0; border-radius: 20px; font-size: 12px; font-weight: 500; color: #4a5568; margin-top: 10px; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>🔐 Reset Your Password</h1>
+        </div>
+        <div class="content">
+          <h2 style="margin-bottom: 10px;">Hello ${name || 'User'}!</h2>
+          <div class="role-badge">${role || 'User'}</div>
+          
+          <p style="font-size: 16px; margin: 25px 0;">
+            We received a request to reset the password for your account. 
+            Click the button below to create a new password:
+          </p>
+          
+          <div style="text-align: center;">
+            <a href="${resetLink}" class="button">Reset Password</a>
+          </div>
+          
+          <p style="margin-top: 25px; margin-bottom: 10px;">Or copy this link to your browser:</p>
+          <div class="token-box">
+            ${resetLink}
+          </div>
+          
+          <p style="font-size: 14px; color: #64748b; margin-top: 25px;">
+            This link will expire in <strong>1 hour</strong> for security reasons.
+          </p>
+          
+          <div class="warning">
+            ⚠️ If you didn't request this, please ignore this email or contact support.
+          </div>
+        </div>
+        <div class="footer">
+          <p style="margin-bottom: 10px;">
+            Sent with ❤️ from ${process.env.APP_NAME || 'Your App'}<br>
+            © ${new Date().getFullYear()} ${process.env.COMPANY_NAME || 'Your Company'}. All rights reserved.
+          </p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  const text = `
+    Reset Your Password - ${process.env.APP_NAME || 'Your App'}
+    
+    Hello ${name || 'User'},
+    
+    We received a request to reset your password. Click the link below to create a new password:
+    
+    ${resetLink}
+    
+    This link expires in 1 hour.
+    
+    If you didn't request this, please ignore this email.
+    
+    © ${new Date().getFullYear()} ${process.env.COMPANY_NAME || 'Your Company'}
+  `;
+
+  // IMPORTANT: Send email with proper string email
+  return sendEmail({
+    to: email,  // This must be a string, not an object
+    subject: 'Reset Your Password',
+    html,
+    text
+  });
+},
+
+  // Password reset confirmation
+  passwordResetConfirmation: async ({ email, name }) => {
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: 'Inter', sans-serif; line-height: 1.6; color: #333; background-color: #f4f4f7; }
+          .container { max-width: 600px; margin: 20px auto; background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+          .header { background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 40px 20px; text-align: center; }
+          .header h1 { color: white; margin: 0; font-size: 28px; }
+          .content { padding: 40px 30px; text-align: center; }
+          .button { display: inline-block; padding: 12px 24px; background: #10b981; color: white; text-decoration: none; border-radius: 6px; margin-top: 20px; }
+          .footer { padding: 30px; text-align: center; background: #f8fafc; color: #64748b; font-size: 14px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>✅ Password Updated Successfully</h1>
+          </div>
+          <div class="content">
+            <div style="font-size: 48px; margin-bottom: 20px;">🔒</div>
+            <h2 style="margin-bottom: 20px;">Hi ${name}!</h2>
+            <p style="font-size: 16px; margin-bottom: 30px;">
+              Your password has been successfully updated. You can now log in with your new password.
+            </p>
+            <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/login" class="button">
+              Go to Login
+            </a>
+            <p style="margin-top: 30px; font-size: 14px; color: #666; padding: 20px; background: #f8fafc; border-radius: 8px;">
+              ⚠️ If you didn't make this change, please contact support immediately.
+            </p>
+          </div>
+          <div class="footer">
+            <p>© ${new Date().getFullYear()} ${process.env.COMPANY_NAME || 'Your Company'}</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    return sendEmail({
+      to: email,
+      subject: 'Password Updated Successfully',
+      html
     });
   },
 
@@ -1469,40 +1616,68 @@ newCaseNotificationToAdmin: (data) => {
     });
   },
 
-  passwordReset: async (to, name, resetLink) => {
-    return sendEmail({
-      to,
-      subject: 'Reset Your Password',
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <div style="background-color: #f8f9fa; padding: 20px; text-align: center; border-radius: 5px;">
-            <h2 style="color: #dc3545;">Password Reset Request</h2>
+// UPDATE THIS FUNCTION - Change from 3 parameters to accept an object
+passwordReset: async ({ email, name, resetLink, role }) => {
+  console.log('📧 Sending password reset email to:', email);
+  
+  // Validate required fields
+  if (!email) {
+    throw new Error('Email is required for password reset');
+  }
+
+  return sendEmail({
+    to: email,  // Pass the email string
+    subject: 'Reset Your Password',
+    html: `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Reset Your Password</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background-color: #f4f4f7; }
+          .container { max-width: 600px; margin: 20px auto; background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+          .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 20px; text-align: center; }
+          .header h1 { color: white; margin: 0; font-size: 28px; }
+          .content { padding: 40px 30px; }
+          .button { display: inline-block; padding: 14px 30px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; text-decoration: none; border-radius: 8px; font-weight: 600; margin: 20px 0; }
+          .footer { padding: 30px; text-align: center; background: #f8fafc; color: #64748b; font-size: 14px; }
+          .warning { color: #e53e3e; font-size: 14px; padding: 10px; background: #fff5f5; border-radius: 8px; }
+          .role-badge { display: inline-block; padding: 4px 12px; background: #e2e8f0; border-radius: 20px; font-size: 12px; color: #4a5568; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>🔐 Reset Your Password</h1>
           </div>
-          <div style="padding: 20px;">
-            <p>Hi <strong>${name}</strong>,</p>
-            <p>We received a request to reset your password. Click the button below to proceed:</p>
-            <div style="text-align: center; margin: 30px 0;">
-              <a href="${resetLink}" 
-                 style="background-color: #dc3545; color: white; padding: 12px 24px; 
-                        text-decoration: none; border-radius: 5px; display: inline-block;">
-                🔐 Reset Password
-              </a>
+          <div class="content">
+            <h2>Hello ${name || 'User'}!</h2>
+            ${role ? `<div class="role-badge">${role}</div>` : ''}
+            
+            <p>We received a request to reset your password. Click the button below to create a new password:</p>
+            
+            <div style="text-align: center;">
+              <a href="${resetLink}" class="button">Reset Password</a>
             </div>
-            <p style="color: #666; font-size: 14px;">⏰ This link expires in 1 hour.</p>
-            <div style="background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin-top: 20px;">
-              <p style="margin: 0; font-size: 14px; color: #666;">
-                <strong>⚠️ Didn't request this?</strong><br>
-                If you didn't request a password reset, please ignore this email or contact support if you have concerns.
-              </p>
+            
+            <p>Or copy this link: ${resetLink}</p>
+            <p>This link expires in <strong>1 hour</strong>.</p>
+            
+            <div class="warning">
+              ⚠️ If you didn't request this, please ignore this email.
             </div>
           </div>
-          <div style="text-align: center; padding: 20px; color: #666; font-size: 12px; border-top: 1px solid #eee;">
-            <p>This is an automated message, please do not reply.</p>
+          <div class="footer">
+            <p>© ${new Date().getFullYear()} Your Company. All rights reserved.</p>
           </div>
         </div>
-      `
-    });
-  },
+      </body>
+      </html>
+    `
+  });
+},
 
   notification: async (to, subject, message, type = 'info') => {
     const colors = {
