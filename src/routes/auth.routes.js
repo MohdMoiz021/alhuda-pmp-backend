@@ -80,7 +80,6 @@ const { authenticate } = require('../../middleware/auth');
 const db = require('../../db');
 const { emailTemplates } = require('../../services/emailService');
 const { resetPassword, forgotPassword, verifyResetToken } = require('../controllers/forgotPassword.controller');
-// In Express 5, router is not a separate function
 const authRoutes = express();
 
 // Public routes
