@@ -3,7 +3,8 @@ const pool = require('../../db');
 const crypto = require('crypto');
 const { emailTemplates } = require('../../services/emailService');
 const { hashPassword } = require('../../src/utils/passwordUtils');
-// controllers/auth/forgotPassword.controller.js
+
+
 const forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
