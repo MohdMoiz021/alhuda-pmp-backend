@@ -75,8 +75,8 @@ const forgotPassword = async (req, res) => {
       
       console.log('✅ Password reset email sent successfully to:', user.email);
     } catch (emailError) {
-      console.error('❌ Failed to send email:', emailError.message);
-      console.error('❌ Full error:', emailError);
+      console.error('Failed to send email:', emailError.message);
+      console.error('Full error:', emailError);
       // Don't fail the request if email fails, but log it
     }
 
