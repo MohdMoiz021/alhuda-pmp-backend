@@ -2,7 +2,7 @@
 const pool = require('../../db');
 const crypto = require('crypto');
 const { emailTemplates } = require('../../services/emailService');
-
+const { hashPassword } = require('../../src/utils/passwordUtils');
 // controllers/auth/forgotPassword.controller.js
 const forgotPassword = async (req, res) => {
   try {
@@ -140,7 +140,7 @@ const resetPassword = async (req, res) => {
     const user = userResult.rows[0];
 
     // Hash new password
-    const { hashPassword } = require('../../src/utils/passwordUtils');
+
     const hashedPassword = await hashPassword(newPassword);
 
     // Update user password and clear reset token
