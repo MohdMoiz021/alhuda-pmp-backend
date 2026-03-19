@@ -82,7 +82,6 @@ const { emailTemplates } = require('../../services/emailService');
 const { resetPassword, forgotPassword, verifyResetToken } = require('../controllers/forgotPassword.controller');
 const authRoutes = express();
 
-// Public routes
 authRoutes.post('/register', register);
 authRoutes.post('/login', login);
 authRoutes.get('/internalteam', async (req,res)=>{
