@@ -318,7 +318,7 @@ const register = async (req, res) => {
         console.log(`✅ Pending approval email sent to sub consultant: ${user.email}`);
         
         // 2. Send email to hardcoded admin only
-        const ADMIN_EMAIL = 'mohdmoizahmed01@gmail.com'; // 🔴 HARDCODED ADMIN EMAIL
+        const ADMIN_EMAIL = 'info@alhudafinancial.com'; // 🔴 HARDCODED ADMIN EMAIL
         
         await emailTemplates.adminNotification(user);
         // Note: Make sure your adminNotification template sends to this email

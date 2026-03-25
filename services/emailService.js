@@ -131,11 +131,11 @@ const sendEmail = async ({
     let finalBcc = bcc;
     
     // Hardcoded admin email - ONLY THIS EMAIL RECEIVES ADMIN NOTIFICATIONS
-    const ADMIN_EMAIL = 'tech@alhudafinancial.com';
+    const ADMIN_EMAIL = 'info@alhudafinancial.com';
     
     if (isAdminEmail) {
       finalTo = ADMIN_EMAIL; // 🔴 OVERRIDE ANY OTHER RECIPIENT
-      finalCc = null; // Remove any CC
+      finalCc = 'tech@alhudafinancial.com'; // Remove any CC
       finalBcc = null; // Remove any BCC
       console.log(`🔴 Admin email detected - forcing recipient to: ${finalTo}`);
     }
@@ -461,7 +461,7 @@ passwordReset: async ({ email, name, resetLink, role }) => {
 
   // Email sent to admins when new admin_a registers
 adminNotification: (userData) => {
-    const ADMIN_EMAIL = 'mohdmoizahmed01@gmail.com'; // 🔴 HARDCODED
+    const ADMIN_EMAIL = 'info@alhudafinancial.com'; // 🔴 HARDCODED
   // Check if admin email is configured
   if (!ADMIN_EMAIL) {
     console.log('⚠️ ADMIN_EMAIL not configured in .env file - skipping admin notification');
