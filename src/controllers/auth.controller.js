@@ -265,7 +265,17 @@ const login = async (req, res) => {
 
 const register = async (req, res) => {
   try {
-    const { email, password, first_name, last_name, phone, company_name, role } = req.body;
+    const { 
+      email, 
+      password, 
+      first_name, 
+      last_name, 
+      phone, 
+      whatsapp_number, // New field
+      company_name, 
+      location, // New field
+      role 
+    } = req.body;
     
     if (!email || !password || !role) {
       return res.status(400).json({
@@ -282,6 +292,7 @@ const register = async (req, res) => {
       });
     }
 
+    // Check if user exists
     const existingUser = await pool.query(
       'SELECT id FROM users WHERE email = $1',
       [email]
@@ -297,12 +308,13 @@ const register = async (req, res) => {
     const hashedPassword = await hashPassword(password);
     const is_active = role === 'admin_a' ? false : true;
     
+    // Insert user with new fields
     const newUser = await pool.query(
       `INSERT INTO users 
-       (email, password_hash, first_name, last_name, phone, company_name, role, is_active) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
-       RETURNING id, email, first_name, last_name, phone, company_name, role, is_active, created_at`,
-      [email, hashedPassword, first_name, last_name, phone, company_name, role, is_active]
+       (email, password_hash, first_name, last_name, phone, whatsapp_number, company_name, location, role, is_active) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) 
+       RETURNING id, email, first_name, last_name, phone, whatsapp_number, company_name, location, role, is_active, created_at`,
+      [email, hashedPassword, first_name, last_name, phone, whatsapp_number, company_name, location || null, role, is_active]
     );
 
     const user = newUser.rows[0];
@@ -314,15 +326,23 @@ const register = async (req, res) => {
         // Case 1: Sub Consultant (needs approval)
         
         // 1. Send email to user (pending approval)
-        await emailTemplates.registrationPending(user);
+        await emailTemplates.registrationPending({
+          ...user,
+          whatsapp_number: user.whatsapp_number || 'Not provided'
+        });
         console.log(`✅ Pending approval email sent to sub consultant: ${user.email}`);
         
-        // 2. Send email to hardcoded admin only
-        const ADMIN_EMAIL = 'info@alhudafinancial.com'; // 🔴 HARDCODED ADMIN EMAIL
+        // 2. Send email to both admin emails
+        const ADMIN_EMAILS = ['tech@alhudafinancial.com', 'info@alhudafinancial.com'];
         
-        await emailTemplates.adminNotification(user);
-        // Note: Make sure your adminNotification template sends to this email
-        console.log(`✅ Admin notification sent to: ${ADMIN_EMAIL}`);
+        // Send to primary admin with CC
+        await emailTemplates.adminNotification({
+          ...user,
+          whatsapp_number: user.whatsapp_number || 'Not provided',
+          location: user.location || 'Not provided'
+        });
+        
+        console.log(`✅ Admin notification sent to: ${ADMIN_EMAILS.join(', ')}`);
         
       } else if (role === 'admin_b' || role === 'admin_c') {
         // Case 2: Internal Team Member (auto-approved)
@@ -336,23 +356,26 @@ const register = async (req, res) => {
         });
         console.log(`✅ Welcome email sent to new team member: ${user.email}`);
         
-        // 2. Send notification to ONLY the hardcoded admin email
-        const ADMIN_EMAIL = 'mohdmoizahmed01@gmail.com'; // 🔴 HARDCODED ADMIN EMAIL
+        // 2. Send notification to both admin emails
+        const ADMIN_EMAILS = ['tech@alhudafinancial.com', 'info@alhudafinancial.com'];
         
-        // Send email directly without querying database
+        // Send email with WhatsApp and location info
         await emailTemplates.newTeamMemberNotification({
-          admin_name: 'Admin', // Hardcoded admin name
-          admin_email: ADMIN_EMAIL, // Hardcoded admin email
+          admin_name: 'Admin',
+          admin_email: ADMIN_EMAILS[0], // Primary recipient
+          cc_email: ADMIN_EMAILS[1], // CC recipient
           new_member_name: `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email,
           new_member_email: user.email,
           new_member_role: role === 'admin_b' ? 'Admin' : 'Manager',
           new_member_phone: user.phone || 'Not provided',
+          new_member_whatsapp: user.whatsapp_number || 'Not provided',
           new_member_company: user.company_name || 'Not provided',
+          new_member_location: user.location || 'Not provided',
           registered_date: new Date().toLocaleString(),
           admin_dashboard_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/admin/team`
         });
         
-        console.log(`✅ New member notification sent to hardcoded admin: ${ADMIN_EMAIL}`);
+        console.log(`✅ New member notification sent to: ${ADMIN_EMAILS.join(', ')}`);
       }
     } catch (emailError) {
       // Log email error but don't fail registration
@@ -362,7 +385,7 @@ const register = async (req, res) => {
     res.status(201).json({
       success: true,
       message: role === 'admin_a' 
-        ? 'Sub Consultant application submitted successfully. Awaiting admin approval.' 
+        ? 'Partner application submitted successfully. Awaiting admin approval.' 
         : 'Internal team member registered successfully',
       data: {
         user,
@@ -378,8 +401,6 @@ const register = async (req, res) => {
     });
   }
 };
-
-
 
 
 const getProfile = async (req, res) => {
