@@ -108,22 +108,71 @@ const login = async (req, res) => {
 
     const user = userResult.rows[0];
 
-    // For Sub Consultants (admin_a), check if account is approved
-    if (user.role === 'admin_a' && !user.is_active) {
-      return res.status(403).json({
-        success: false,
-        message: 'Your Sub Consultant account is pending admin approval. Please wait for approval before logging in.'
-      });
+    // ==================== ACCOUNT STATUS CHECK ====================
+    // is_active can be: null (pending), true (approved), false (rejected)
+    
+    // For Sub Consultants (admin_a) - Check account status
+    if (user.role === 'admin_a') {
+      // Case 1: Account is pending approval (is_active === null)
+      if (user.is_active === null) {
+        return res.status(403).json({
+          success: false,
+          message: 'Your Partner account is pending admin approval. Please wait for approval before logging in.',
+          status: 'pending',
+          data: {
+            email: user.email,
+            role: user.role,
+            registered_at: user.created_at
+          }
+        });
+      }
+      
+      // Case 2: Account is rejected (is_active === false)
+      if (user.is_active === false) {
+        return res.status(403).json({
+          success: false,
+          message: 'Your Partner account has been rejected by the admin. Please contact support for more information.',
+          status: 'rejected',
+          data: {
+            email: user.email,
+            role: user.role,
+            rejection_reason: user.rejection_reason || 'No specific reason provided'
+          }
+        });
+      }
+      
+      // Case 3: Account is approved (is_active === true)
+      if (user.is_active === true) {
+        // Proceed with login for approved accounts
+        // Continue to password verification
+      }
+    }
+    
+    // For internal team members (admin_b, admin_c)
+    else if (user.role === 'admin_b' || user.role === 'admin_c') {
+      // Internal team members should always be active (is_active === true)
+      if (user.is_active !== true) {
+        return res.status(403).json({
+          success: false,
+          message: 'Your account is not active. Please contact administrator.',
+          status: 'inactive'
+        });
+      }
+    }
+    
+    // For any other roles or fallback
+    else {
+      // Generic active check for other roles
+      if (user.is_active !== true) {
+        return res.status(403).json({
+          success: false,
+          message: 'Account is not active. Contact administrator.',
+          status: 'inactive'
+        });
+      }
     }
 
-    // Check if user is active (for other roles)
-    if (!user.is_active) {
-      return res.status(403).json({
-        success: false,
-        message: 'Account is deactivated. Contact administrator.'
-      });
-    }
-
+    // ==================== PASSWORD VERIFICATION ====================
     // Verify password
     const isValidPassword = await comparePassword(password, user.password_hash);
     
@@ -136,21 +185,25 @@ const login = async (req, res) => {
 
     // Update last login
     await pool.query(
-      'UPDATE users SET updated_at = CURRENT_TIMESTAMP WHERE id = $1',
+      'UPDATE users SET updated_at = CURRENT_TIMESTAMP, last_login = CURRENT_TIMESTAMP WHERE id = $1',
       [user.id]
     );
 
     // Generate JWT token
     const token = generateToken(user);
 
-    // Remove password_hash from response
+    // Remove sensitive data from response
     const { password_hash, ...userWithoutPassword } = user;
 
     res.json({
       success: true,
       message: 'Login successful',
       data: {
-        user: userWithoutPassword,
+        user: {
+          ...userWithoutPassword,
+          // Ensure is_active is properly typed in response
+          is_active: user.is_active === true // Convert to boolean for frontend
+        },
         token
       }
     });
@@ -271,9 +324,9 @@ const register = async (req, res) => {
       first_name, 
       last_name, 
       phone, 
-      whatsapp_number, // New field
+      whatsapp_number,
       company_name, 
-      location, // New field
+      location,
       role 
     } = req.body;
     
@@ -306,7 +359,16 @@ const register = async (req, res) => {
     }
 
     const hashedPassword = await hashPassword(password);
-    const is_active = role === 'admin_a' ? false : true;
+    
+    // Set is_active based on role:
+    // - admin_a (Partner): NULL (pending approval)
+    // - admin_b/admin_c (Internal): true (auto-approved)
+    let is_active = null;
+    if (role === 'admin_a') {
+      is_active = null; // Pending approval
+    } else {
+      is_active = true; // Auto-approved for internal team
+    }
     
     // Insert user with new fields
     const newUser = await pool.query(
@@ -314,7 +376,7 @@ const register = async (req, res) => {
        (email, password_hash, first_name, last_name, phone, whatsapp_number, company_name, location, role, is_active) 
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) 
        RETURNING id, email, first_name, last_name, phone, whatsapp_number, company_name, location, role, is_active, created_at`,
-      [email, hashedPassword, first_name, last_name, phone, whatsapp_number, company_name, location || null, role, is_active]
+      [email, hashedPassword, first_name, last_name, phone, whatsapp_number || null, company_name, location || null, role, is_active]
     );
 
     const user = newUser.rows[0];
@@ -323,19 +385,19 @@ const register = async (req, res) => {
     // 🚀 SEND EMAILS BASED ON ROLE
     try {
       if (role === 'admin_a') {
-        // Case 1: Sub Consultant (needs approval)
+        // Partner registration - needs approval
         
         // 1. Send email to user (pending approval)
         await emailTemplates.registrationPending({
           ...user,
-          whatsapp_number: user.whatsapp_number || 'Not provided'
+          whatsapp_number: user.whatsapp_number || 'Not provided',
+          location: user.location || 'Not provided'
         });
-        console.log(`✅ Pending approval email sent to sub consultant: ${user.email}`);
+        console.log(`✅ Pending approval email sent to partner: ${user.email}`);
         
         // 2. Send email to both admin emails
         const ADMIN_EMAILS = ['tech@alhudafinancial.com', 'info@alhudafinancial.com'];
         
-        // Send to primary admin with CC
         await emailTemplates.adminNotification({
           ...user,
           whatsapp_number: user.whatsapp_number || 'Not provided',
@@ -345,9 +407,9 @@ const register = async (req, res) => {
         console.log(`✅ Admin notification sent to: ${ADMIN_EMAILS.join(', ')}`);
         
       } else if (role === 'admin_b' || role === 'admin_c') {
-        // Case 2: Internal Team Member (auto-approved)
+        // Internal team member - auto-approved
         
-        // 1. Send welcome email to the new team member ONLY
+        // 1. Send welcome email to the new team member
         await emailTemplates.welcomeTeamMember({
           email: user.email,
           name: `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email,
@@ -359,11 +421,10 @@ const register = async (req, res) => {
         // 2. Send notification to both admin emails
         const ADMIN_EMAILS = ['tech@alhudafinancial.com', 'info@alhudafinancial.com'];
         
-        // Send email with WhatsApp and location info
         await emailTemplates.newTeamMemberNotification({
           admin_name: 'Admin',
-          admin_email: ADMIN_EMAILS[0], // Primary recipient
-          cc_email: ADMIN_EMAILS[1], // CC recipient
+          admin_email: ADMIN_EMAILS[0],
+          cc_email: ADMIN_EMAILS[1],
           new_member_name: `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email,
           new_member_email: user.email,
           new_member_role: role === 'admin_b' ? 'Admin' : 'Manager',
@@ -378,7 +439,6 @@ const register = async (req, res) => {
         console.log(`✅ New member notification sent to: ${ADMIN_EMAILS.join(', ')}`);
       }
     } catch (emailError) {
-      // Log email error but don't fail registration
       console.error('❌ Email sending error:', emailError.message);
     }
 
@@ -695,6 +755,50 @@ const getPendingSubConsultants = async (req, res) => {
         created_at,
         updated_at
        FROM users 
+       WHERE role = 'admin_a' AND is_active IS NULL
+       ORDER BY created_at DESC`
+    );
+
+    res.json({
+      success: true,
+      count: pendingUsers.rows.length,
+      data: pendingUsers.rows
+    });
+
+  } catch (error) {
+    console.error('Get pending sub consultants error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching pending applications'
+    });
+  }
+};
+
+
+const getRejectedSubConsultants = async (req, res) => {
+  try {
+    // Check if the current user is admin_c
+    if (req.user.role !== 'admin_c') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Only admin_c can view pending applications.'
+      });
+    }
+
+    // Fetch pending Sub Consultants
+    const pendingUsers = await pool.query(
+      `SELECT 
+        id, 
+        email, 
+        first_name, 
+        last_name, 
+        phone, 
+        company_name, 
+        role, 
+        is_active,
+        created_at,
+        updated_at
+       FROM users 
        WHERE role = 'admin_a' AND is_active = false
        ORDER BY created_at DESC`
     );
@@ -775,5 +879,6 @@ module.exports = {
   getUserById,
   updateUserStatus,
   getPendingSubConsultants,
+  getRejectedSubConsultants,
   deleteUser
 };
