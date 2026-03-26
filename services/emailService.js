@@ -207,7 +207,7 @@ const wrapEmail = (headerLabel, headerTitle, body, footerNote = '') => `
       ${body}
     </div>
     <div class="card-footer">
-      ${footerNote || `© ${new Date().getFullYear()} ${process.env.COMPANY_NAME || 'Alhuda Financial'}. All rights reserved.`}
+      ${footerNote || `© ${new Date().getFullYear()} ${process.env.COMPANY_NAME || 'Alhuda CIBE Financial'}. All rights reserved.`}
     </div>
   </div>
 </div>
@@ -323,7 +323,7 @@ const emailTemplates = {
       <p>Hi ${name},</p>
       <p>Your account is ready. Everything you need is waiting for you in the dashboard.</p>
       <div class="btn-center">
-        <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/dashboard" class="btn">Go to Dashboard</a>
+        <a href="${process.env.FRONTEND_URL || 'http://localhost:5000'}/dashboard" class="btn">Go to Dashboard</a>
       </div>
       <div class="note-box">
         Need help? Reply to this email or contact <a href="mailto:${process.env.SUPPORT_EMAIL || 'info@alhudafinancial.com'}" style="color:#0071e3;">${process.env.SUPPORT_EMAIL || 'info@alhudafinancial.com'}</a>
@@ -388,6 +388,255 @@ const emailTemplates = {
       text,
     });
   },
+
+    // New: Registration Approved Email for Sub Consultant
+  registrationApproved: async (userData) => {
+    const body = `
+      <p>Hi ${userData.name},</p>
+      <p>Congratulations! Your registration as a Sub Consultant has been <strong style="color: #10b981;">approved</strong> by the admin. You now have full access to the platform.</p>
+      
+      <div class="detail-block">
+        <div class="detail-row">
+          <span class="detail-label">Name</span>
+          <span class="detail-value">${userData.name}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Email</span>
+          <span class="detail-value">${userData.email}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Phone</span>
+          <span class="detail-value">${userData.phone || 'Not provided'}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">WhatsApp Number</span>
+          <span class="detail-value">${userData.whatsapp_number || 'Not provided'}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Company Name</span>
+          <span class="detail-value">${userData.company_name || 'Not provided'}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Location</span>
+          <span class="detail-value">${userData.location || 'Not provided'}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Status</span>
+          <span class="detail-value"><span class="badge badge-green">Active</span></span>
+        </div>
+      </div>
+      
+      <h3>What you can do now:</h3>
+      <ul class="feature-list">
+        <li>✓ Create and manage cases</li>
+        <li>✓ Upload documents for review</li>
+        <li>✓ Track case status in real-time</li>
+        <li>✓ Collaborate with the admin team</li>
+        <li>✓ Access your dashboard anytime</li>
+      </ul>
+      
+      <div class="btn-center">
+        <a href="${userData.login_url}" class="btn">Sign In to Your Account</a>
+      </div>
+      
+      <div class="note-box">
+        <strong>Getting Started:</strong><br />
+        Log in using your email <strong>${userData.email}</strong> and the password you created during registration. If you forgot your password, use the "Forgot Password" option on the login page.
+      </div>
+      
+      <hr style="margin: 20px 0; border: none; border-top: 1px solid #e5e7eb;" />
+      
+      <p style="font-size: 12px; color: #6b7280;">If you have any questions or need assistance, please contact our support team at <a href="mailto:${process.env.SUPPORT_EMAIL || 'support@alhudafinancial.com'}">${process.env.SUPPORT_EMAIL || 'support@alhudafinancial.com'}</a></p>
+    `;
+
+    return sendEmail({
+      to: userData.email,
+      subject: '🎉 Registration Approved — Welcome to Al Huda Financial!',
+      html: wrapEmail(
+        'Registration Approved',
+        'Your Sub Consultant application has been approved!',
+        body
+      ),
+    });
+  },
+
+  // New: Registration Rejected Email for Sub Consultant
+  registrationRejected: async (userData) => {
+    const body = `
+      <p>Hi ${userData.name},</p>
+      <p>Thank you for your interest in becoming a Sub Consultant with Al Huda Financial. After careful review, we regret to inform you that your registration application has been <strong style="color: #dc2626;">rejected</strong>.</p>
+      
+      <div class="detail-block">
+        <div class="detail-row">
+          <span class="detail-label">Reason for Rejection</span>
+          <span class="detail-value" style="color: #dc2626;">${userData.rejection_reason}</span>
+        </div>
+      </div>
+      
+      <div class="note-box" style="background-color: #fef2f2; border-left-color: #dc2626;">
+        <p><strong>What can you do?</strong></p>
+        <ul>
+          <li>Review the rejection reason above</li>
+          <li>Update your information if needed</li>
+          <li>Contact our support team for clarification</li>
+          <li>Submit a new application with corrected details</li>
+        </ul>
+      </div>
+      
+      <p>If you believe this decision was made in error or would like more information about the specific reason, please don't hesitate to reach out to our support team.</p>
+      
+      <div class="note-box">
+        <strong>Contact Support:</strong><br />
+        Email: <a href="mailto:${userData.support_email}" style="color:#0071e3;">${userData.support_email}</a>
+      </div>
+      
+      <p>We appreciate your interest and encourage you to reapply with the necessary corrections.</p>
+      
+      <hr style="margin: 20px 0; border: none; border-top: 1px solid #e5e7eb;" />
+      
+      <p style="font-size: 12px; color: #6b7280;">Thank you for your understanding.</p>
+    `;
+
+    return sendEmail({
+      to: userData.email,
+      subject: '📋 Update on Your Sub Consultant Application',
+      html: wrapEmail(
+        'Application Status Update',
+        'Important information about your application',
+        body
+      ),
+    });
+  },
+
+   adminApprovalNotification: async (data) => {
+    const body = `
+      <p>Hi ${data.admin_name},</p>
+      <p>A new Sub Consultant has been <strong style="color: #10b981;">approved</strong> and is now active on the platform.</p>
+      
+      <div class="detail-block">
+        <div class="detail-row">
+          <span class="detail-label">Name</span>
+          <span class="detail-value">${data.approved_user.name}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Email</span>
+          <span class="detail-value">${data.approved_user.email}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Phone</span>
+          <span class="detail-value">${data.approved_user.phone}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">WhatsApp Number</span>
+          <span class="detail-value">${data.approved_user.whatsapp_number}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Company Name</span>
+          <span class="detail-value">${data.approved_user.company_name}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Location</span>
+          <span class="detail-value">${data.approved_user.location}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Approved Date</span>
+          <span class="detail-value">${data.approved_user.approved_date}</span>
+        </div>
+      </div>
+      
+      <div class="btn-center">
+        <a href="${data.admin_dashboard_url}" class="btn">View Admin Dashboard</a>
+      </div>
+      
+      <div class="note-box">
+        <strong>Next Steps:</strong><br />
+        The approved Sub Consultant can now log in and start using the platform. You can manage their permissions and access from the admin dashboard.
+      </div>
+    `;
+
+    const emailOptions = {
+      to: data.admin_email,
+      subject: '✅ New Sub Consultant Approved',
+      html: wrapEmail(
+        'Sub Consultant Approved',
+        'A new Sub Consultant has been approved',
+        body
+      ),
+    };
+
+    // Add CC if provided
+    if (data.cc_email) {
+      emailOptions.cc = data.cc_email;
+    }
+
+    return sendEmail(emailOptions);
+  },
+
+  // New: Admin Rejection Notification
+  adminRejectionNotification: async (data) => {
+    const body = `
+      <p>Hi ${data.admin_name},</p>
+      <p>A Sub Consultant application has been <strong style="color: #dc2626;">rejected</strong>. Below are the details:</p>
+      
+      <div class="detail-block">
+        <div class="detail-row">
+          <span class="detail-label">Name</span>
+          <span class="detail-value">${data.rejected_user.name}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Email</span>
+          <span class="detail-value">${data.rejected_user.email}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Phone</span>
+          <span class="detail-value">${data.rejected_user.phone}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">WhatsApp Number</span>
+          <span class="detail-value">${data.rejected_user.whatsapp_number}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Company Name</span>
+          <span class="detail-value">${data.rejected_user.company_name}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Location</span>
+          <span class="detail-value">${data.rejected_user.location}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Rejection Reason</span>
+          <span class="detail-value" style="color: #dc2626;">${data.rejected_user.rejection_reason}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Rejected Date</span>
+          <span class="detail-value">${data.rejected_user.rejected_date}</span>
+        </div>
+      </div>
+      
+      <div class="note-box">
+        <strong>Note:</strong><br />
+        The applicant has been notified of this decision. They may reapply with corrected information if applicable.
+      </div>
+    `;
+
+    const emailOptions = {
+      to: data.admin_email,
+      subject: '❌ Sub Consultant Application Rejected',
+      html: wrapEmail(
+        'Sub Consultant Rejected',
+        'A Sub Consultant application has been rejected',
+        body
+      ),
+    };
+
+    // Add CC if provided
+    if (data.cc_email) {
+      emailOptions.cc = data.cc_email;
+    }
+
+    return sendEmail(emailOptions);
+  },
+
 
   // Password reset confirmation
   passwordResetConfirmation: async ({ email, name }) => {
@@ -597,56 +846,102 @@ const emailTemplates = {
   },
 
   // Approval / rejection status to sub consultant
-  approvalStatus: (userData, status, reason = null) => {
-    const isApproved = status === 'approved';
+approvalStatus: (userData, status, reason = null) => {
+  const isApproved = status === 'approved';
+  const fullName = `${userData.first_name || ''} ${userData.last_name || ''}`.trim() || 'User';
 
-    const body = isApproved ? `
-      <p>Hi ${userData.first_name || ''} ${userData.last_name || ''},</p>
-      <p>Your Sub Consultant application has been approved. You now have full access to the platform.</p>
+  const body = isApproved ? `
+    <p>Hi ${fullName},</p>
+    <p>Your Sub Consultant application has been <strong style="color: #10b981;">approved</strong>. You now have full access to the platform.</p>
+    
+    <div class="detail-block">
+      <div class="detail-row">
+        <span class="detail-label">Name</span>
+        <span class="detail-value">${fullName}</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-label">Email</span>
+        <span class="detail-value">${userData.email}</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-label">Role</span>
+        <span class="detail-value">Sub Consultant</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-label">Status</span>
+        <span class="detail-value"><span class="badge badge-green">Active</span></span>
+      </div>
+    </div>
+    
+    <h3>What you can do now:</h3>
+    <ul class="feature-list">
+      <li>✓ Create and manage cases</li>
+      <li>✓ Upload documents for review</li>
+      <li>✓ Track case status in real-time</li>
+      <li>✓ Collaborate with the admin team</li>
+    </ul>
+    
+    <div class="btn-center">
+      <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/login" class="btn">Sign In to Your Account</a>
+    </div>
+    
+    <div class="note-box">
+      <strong>Note:</strong> Sign in using your email <strong>${userData.email}</strong> and the password you created during registration.
+    </div>
+    
+    <hr style="margin: 20px 0; border: none; border-top: 1px solid #e5e7eb;" />
+    
+    <p style="font-size: 12px; color: #6b7280;">If you have any questions, please contact our support team.</p>
+  ` : `
+    <p>Hi ${fullName},</p>
+    <p>Thank you for your interest in becoming a Sub Consultant. After careful review, we regret to inform you that we are unable to approve your application at this time.</p>
+    
+    ${reason ? `
       <div class="detail-block">
-        <div class="detail-row"><span class="detail-label">Name</span><span class="detail-value">${userData.first_name || ''} ${userData.last_name || ''}</span></div>
-        <div class="detail-row"><span class="detail-label">Email</span><span class="detail-value">${userData.email}</span></div>
-        <div class="detail-row"><span class="detail-label">Role</span><span class="detail-value">Sub Consultant</span></div>
-        <div class="detail-row"><span class="detail-label">Status</span><span class="detail-value"><span class="badge badge-green">Active</span></span></div>
-      </div>
-      <ul class="feature-list">
-        <li>Create and manage cases</li>
-        <li>Upload documents for review</li>
-        <li>Track case status in real-time</li>
-        <li>Collaborate with the admin team</li>
-      </ul>
-      <div class="btn-center">
-        <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/login" class="btn">Sign In to Your Account</a>
-      </div>
-      <div class="note-box">
-        Sign in using your email <strong>${userData.email}</strong> and the password you created during registration.
+        <div class="detail-row">
+          <span class="detail-label">Reason for rejection</span>
+          <span class="detail-value" style="color: #dc2626;">${reason}</span>
+        </div>
       </div>
     ` : `
-      <p>Hi ${userData.first_name || ''} ${userData.last_name || ''},</p>
-      <p>After review, we were unable to approve your Sub Consultant application at this time.</p>
-      ${reason ? `
-        <div class="detail-block">
-          <div class="detail-row"><span class="detail-label">Reason</span><span class="detail-value">${reason}</span></div>
-        </div>
-      ` : ''}
-      <p>If you believe this is an error or would like to learn more, please reach out to our support team.</p>
-      <div class="note-box">
-        Email: <a href="mailto:${process.env.SUPPORT_EMAIL || 'info@alhudafinancial.com'}" style="color:#0071e3;">${process.env.SUPPORT_EMAIL || 'info@alhudafinancial.com'}</a>
+      <div class="note-box" style="background-color: #fef2f2; border-left-color: #dc2626;">
+        <p style="margin: 0; color: #991b1b;">Common reasons for rejection include:</p>
+        <ul style="margin: 10px 0 0 20px; color: #991b1b;">
+          <li>Incomplete or inaccurate information provided</li>
+          <li>Unable to verify the provided details</li>
+          <li>Does not meet our eligibility requirements</li>
+        </ul>
       </div>
-    `;
+    `}
+    
+    <p>If you believe this decision was made in error or would like more information about the specific reason, please don't hesitate to reach out to our support team.</p>
+    
+    <div class="note-box">
+      <strong>Contact Support:</strong><br />
+      Email: <a href="mailto:${process.env.SUPPORT_EMAIL || 'info@alhudafinancial.com'}" style="color:#0071e3;">${process.env.SUPPORT_EMAIL || 'info@alhudafinancial.com'}</a>
+    </div>
+    
+    <p>You may reapply with corrected information at any time.</p>
+    
+    <hr style="margin: 20px 0; border: none; border-top: 1px solid #e5e7eb;" />
+    
+    <p style="font-size: 12px; color: #6b7280;">We appreciate your interest and wish you the best.</p>
+  `;
 
-    return sendEmail({
-      to: userData.email,
-      subject: isApproved
-        ? 'Application approved — welcome aboard'
-        : 'Update on your application',
-      html: wrapEmail(
-        'Sub Consultant Application',
-        isApproved ? 'Your application has been approved.' : 'Application status update.',
-        body
-      ),
-    });
-  },
+  return sendEmail({
+    to: userData.email,
+    subject: isApproved
+      ? '🎉 Application Approved — Welcome to Al Huda Financial!'
+      : '📋 Update on Your Sub Consultant Application',
+    html: wrapEmail(
+      'Sub Consultant Application',
+      isApproved 
+        ? 'Congratulations! Your application has been approved.' 
+        : 'Status Update on Your Application',
+      body
+    ),
+  });
+},
 
   // Case submitted confirmation to partner
   caseSubmittedToPartner: (data) => {

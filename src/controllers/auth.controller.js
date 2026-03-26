@@ -664,7 +664,7 @@ const updateUserStatus = async (req, res) => {
     }
 
     const { id } = req.params;
-    const { is_active } = req.body;
+    const { is_active, reason } = req.body; // Added reason parameter for rejection
 
     // Validate input
     if (typeof is_active !== 'boolean') {
@@ -707,8 +707,17 @@ const updateUserStatus = async (req, res) => {
       
       // Only send approval/rejection emails for admin_a users
       if (user.role === 'admin_a') {
-        await emailTemplates.approvalStatus(user, action);
-        console.log(`📧 ${action} email sent to ${user.email}`);
+        // Send appropriate email based on action using your existing template structure
+        if (is_active) {
+          // User is approved
+          await emailTemplates.approvalStatus(user, 'approved');
+          console.log(`📧 Approval email sent to ${user.email}`);
+        } else {
+          // User is rejected - pass the reason if provided
+          const rejectionReason = reason || 'Your application did not meet the eligibility criteria.';
+          await emailTemplates.approvalStatus(user, 'rejected', rejectionReason);
+          console.log(`📧 Rejection email sent to ${user.email}`);
+        }
       }
     } catch (emailError) {
       // Log email error but don't fail the status update
