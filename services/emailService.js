@@ -637,6 +637,435 @@ const emailTemplates = {
     return sendEmail(emailOptions);
   },
 
+  // Add to emailService.js
+
+// ============================================
+// CASE STATUS EMAIL TEMPLATES
+// ============================================
+
+// 1. Case Approved - Client Email
+caseApproved: async (caseData) => {
+  const body = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background-color: #10b981; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
+        <h1 style="color: white; margin: 0;">✅ Case Approved</h1>
+      </div>
+      
+      <div style="padding: 20px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
+        <p>Dear ${caseData.clientName},</p>
+        
+        <p>We are pleased to inform you that your case <strong>#${caseData.caseId}</strong> has been <strong style="color: #10b981;">APPROVED</strong>.</p>
+        
+        ${caseData.financialDetails ? `
+        <div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px; margin: 20px 0;">
+          <h3 style="margin-top: 0;">Financial Summary</h3>
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="padding: 8px 0;"><strong>Total Deal Value:</strong></td>
+              <td style="padding: 8px 0; text-align: right;">£${parseFloat(caseData.financialDetails.total_deal_value).toLocaleString()}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0;"><strong>Profit Margin:</strong></td>
+              <td style="padding: 8px 0; text-align: right;">${caseData.financialDetails.profit_margin}%</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0;"><strong>Total Profit:</strong></td>
+              <td style="padding: 8px 0; text-align: right;">£${parseFloat(caseData.financialDetails.total_profit).toLocaleString()}</td>
+            </tr>
+            <tr style="border-top: 2px solid #d1d5db;">
+              <td style="padding: 12px 0 0 0;"><strong>Your Commission:</strong></td>
+              <td style="padding: 12px 0 0 0; text-align: right; color: #10b981; font-size: 18px;"><strong>£${parseFloat(caseData.financialDetails.commission).toLocaleString()}</strong></td>
+            </tr>
+          </table>
+        </div>
+        ` : ''}
+        
+        <p>You can now proceed with the next steps. Our team will contact you shortly with further instructions.</p>
+        
+        <div class="btn-center" style="text-align: center; margin: 30px 0;">
+          <a href="${process.env.FRONTEND_URL}/cases/${caseData.caseId}" 
+             style="background-color: #10b981; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block;">
+            View Case Details
+          </a>
+        </div>
+        
+        <div class="note-box" style="background-color: #fef9e3; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0; border-radius: 4px;">
+          <strong>Next Steps:</strong>
+          <ul style="margin: 10px 0 0 20px;">
+            <li>Review the financial summary above</li>
+            <li>Complete any outstanding documentation</li>
+            <li>Contact our team if you have questions</li>
+          </ul>
+        </div>
+        
+        <p>If you have any questions, please contact our support team.</p>
+        
+        <hr style="margin: 20px 0; border: none; border-top: 1px solid #e5e7eb;" />
+        
+        <p style="font-size: 12px; color: #6b7280;">
+          Best regards,<br />
+          <strong>Al Huda CIBE Finance Team</strong>
+        </p>
+      </div>
+    </div>
+  `;
+
+  return sendEmail({
+    to: caseData.clientEmail,
+    subject: `✅ Case #${caseData.caseId} Approved - Al Huda CIBE Finance`,
+    html: wrapEmail('Case Approved', 'Your case has been approved!', body)
+  });
+},
+
+// 2. Case Approved - Admin Notification
+caseApprovedAdmin: async (caseData, adminEmails) => {
+  const body = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background-color: #10b981; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
+        <h1 style="color: white; margin: 0;">✅ Case Approved</h1>
+      </div>
+      
+      <div style="padding: 20px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
+        <p>A case has been <strong style="color: #10b981;">APPROVED</strong>.</p>
+        
+        <div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px; margin: 20px 0;">
+          <h3 style="margin-top: 0;">Case Details</h3>
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr><td style="padding: 8px 0;"><strong>Case ID:</strong></td><td style="padding: 8px 0;">#${caseData.caseId}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Client:</strong></td><td style="padding: 8px 0;">${caseData.clientName}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Client Email:</strong></td><td style="padding: 8px 0;">${caseData.clientEmail}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Approved By:</strong></td><td style="padding: 8px 0;">${caseData.updatedBy || 'System'}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Approved At:</strong></td><td style="padding: 8px 0;">${new Date().toLocaleString()}</td></tr>
+          </table>
+        </div>
+        
+        <div class="btn-center" style="text-align: center; margin: 30px 0;">
+          <a href="${process.env.ADMIN_URL}/cases/${caseData.caseId}" 
+             style="background-color: #10b981; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block;">
+            View Case in Admin
+          </a>
+        </div>
+      </div>
+    </div>
+  `;
+
+  return sendEmail({
+    to: adminEmails,
+    subject: `✅ Case #${caseData.caseId} Approved - Action Required`,
+    html: wrapEmail('Case Approved', 'A case has been approved', body)
+  });
+},
+
+// 3. Case Rejected - Client Email
+caseRejected: async (caseData) => {
+  const body = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background-color: #dc2626; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
+        <h1 style="color: white; margin: 0;">❌ Case Update</h1>
+      </div>
+      
+      <div style="padding: 20px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
+        <p>Dear ${caseData.clientName},</p>
+        
+        <p>We regret to inform you that your case <strong>#${caseData.caseId}</strong> has been <strong style="color: #dc2626;">REJECTED</strong>.</p>
+        
+        ${caseData.remarks ? `
+        <div style="background-color: #fee2e2; border-left: 4px solid #dc2626; padding: 15px; margin: 20px 0; border-radius: 4px;">
+          <strong style="color: #991b1b;">Reason for Rejection:</strong>
+          <p style="margin: 10px 0 0 0; color: #991b1b;">${caseData.remarks}</p>
+        </div>
+        ` : ''}
+        
+        <div class="note-box" style="background-color: #fef9e3; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0; border-radius: 4px;">
+          <strong>What can you do?</strong>
+          <ul style="margin: 10px 0 0 20px;">
+            <li>Review the rejection reason above</li>
+            <li>Update the information as needed</li>
+            <li>Contact our support team for clarification</li>
+            <li>Submit a new case with corrected details</li>
+          </ul>
+        </div>
+        
+        <p>If you have questions or need assistance, please contact our support team.</p>
+        
+        <hr style="margin: 20px 0; border: none; border-top: 1px solid #e5e7eb;" />
+        
+        <p style="font-size: 12px; color: #6b7280;">
+          Best regards,<br />
+          <strong>Al Huda CIBE Finance Team</strong>
+        </p>
+      </div>
+    </div>
+  `;
+
+  return sendEmail({
+    to: caseData.clientEmail,
+    subject: `❌ Case #${caseData.caseId} Update - Al Huda CIBE Finance`,
+    html: wrapEmail('Case Status Update', 'Important update on your case', body)
+  });
+},
+
+// 4. Case Clarification Needed - Client Email
+caseClarificationNeeded: async (caseData) => {
+  const body = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background-color: #f59e0b; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
+        <h1 style="color: white; margin: 0;">📝 Clarification Required</h1>
+      </div>
+      
+      <div style="padding: 20px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
+        <p>Dear ${caseData.clientName},</p>
+        
+        <p>We are reviewing your case <strong>#${caseData.caseId}</strong> and need additional information.</p>
+        
+        <div style="background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0; border-radius: 4px;">
+          <strong style="color: #92400e;">Information Required:</strong>
+          <p style="margin: 10px 0 0 0; color: #92400e;">${caseData.remarks}</p>
+        </div>
+        
+        <p>Please provide the requested information as soon as possible to continue with the review process.</p>
+        
+        <div class="btn-center" style="text-align: center; margin: 30px 0;">
+          <a href="${process.env.FRONTEND_URL}/cases/${caseData.caseId}" 
+             style="background-color: #f59e0b; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block;">
+            Update Your Case
+          </a>
+        </div>
+        
+        <p>If you have any questions, please contact our support team.</p>
+        
+        <hr style="margin: 20px 0; border: none; border-top: 1px solid #e5e7eb;" />
+        
+        <p style="font-size: 12px; color: #6b7280;">
+          Best regards,<br />
+          <strong>Al Huda CIBE Finance Team</strong>
+        </p>
+      </div>
+    </div>
+  `;
+
+  return sendEmail({
+    to: caseData.clientEmail,
+    subject: `📝 Clarification Needed: Case #${caseData.caseId} - Al Huda CIBE Finance`,
+    html: wrapEmail('Clarification Required', 'Additional information needed', body)
+  });
+},
+
+// 5. Case In Review - Client Email
+caseInReview: async (caseData) => {
+  const body = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background-color: #3b82f6; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
+        <h1 style="color: white; margin: 0;">🔄 Case In Review</h1>
+      </div>
+      
+      <div style="padding: 20px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
+        <p>Dear ${caseData.clientName},</p>
+        
+        <p>Your case <strong>#${caseData.caseId}</strong> is currently <strong style="color: #3b82f6;">IN REVIEW</strong>.</p>
+        
+        ${caseData.remarks ? `
+        <div style="background-color: #dbeafe; border-left: 4px solid #3b82f6; padding: 15px; margin: 20px 0; border-radius: 4px;">
+          <strong>Review Notes:</strong>
+          <p style="margin: 10px 0 0 0;">${caseData.remarks}</p>
+        </div>
+        ` : `
+        <p>Our team is carefully reviewing your application. We will notify you once the review is complete.</p>
+        `}
+        
+        <div class="note-box" style="background-color: #f3f4f6; padding: 15px; margin: 20px 0; border-radius: 4px;">
+          <strong>Timeline:</strong>
+          <p>Typical review time: 2-3 business days. We'll keep you updated on any progress.</p>
+        </div>
+        
+        <div class="btn-center" style="text-align: center; margin: 30px 0;">
+          <a href="${process.env.FRONTEND_URL}/cases/${caseData.caseId}" 
+             style="background-color: #3b82f6; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block;">
+            Track Case Status
+          </a>
+        </div>
+        
+        <p>Thank you for your patience.</p>
+        
+        <hr style="margin: 20px 0; border: none; border-top: 1px solid #e5e7eb;" />
+        
+        <p style="font-size: 12px; color: #6b7280;">
+          Best regards,<br />
+          <strong>Al Huda CIBE Finance Team</strong>
+        </p>
+      </div>
+    </div>
+  `;
+
+  return sendEmail({
+    to: caseData.clientEmail,
+    subject: `🔄 Case #${caseData.caseId} In Review - Al Huda CIBE Finance`,
+    html: wrapEmail('Case In Review', 'Your case is being reviewed', body)
+  });
+},
+
+// 6. Case Pending - Client Email
+casePending: async (caseData) => {
+  const body = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background-color: #6b7280; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
+        <h1 style="color: white; margin: 0;">⏳ Case Pending</h1>
+      </div>
+      
+      <div style="padding: 20px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
+        <p>Dear ${caseData.clientName},</p>
+        
+        <p>Your case <strong>#${caseData.caseId}</strong> has been submitted and is now <strong style="color: #6b7280;">PENDING</strong> review.</p>
+        
+        ${caseData.remarks ? `
+        <div style="background-color: #f3f4f6; padding: 15px; margin: 20px 0; border-radius: 4px;">
+          <strong>Notes:</strong>
+          <p style="margin: 10px 0 0 0;">${caseData.remarks}</p>
+        </div>
+        ` : ''}
+        
+        <p>We will notify you once the review begins. Thank you for choosing Al Huda CIBE Finance.</p>
+        
+        <div class="btn-center" style="text-align: center; margin: 30px 0;">
+          <a href="${process.env.FRONTEND_URL}/cases/${caseData.caseId}" 
+             style="background-color: #6b7280; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block;">
+            View Case Details
+          </a>
+        </div>
+        
+        <hr style="margin: 20px 0; border: none; border-top: 1px solid #e5e7eb;" />
+        
+        <p style="font-size: 12px; color: #6b7280;">
+          Best regards,<br />
+          <strong>Al Huda CIBE Finance Team</strong>
+        </p>
+      </div>
+    </div>
+  `;
+
+  return sendEmail({
+    to: caseData.clientEmail,
+    subject: `⏳ Case #${caseData.caseId} Submitted - Al Huda CIBE Finance`,
+    html: wrapEmail('Case Submitted', 'Your case is pending review', body)
+  });
+},
+
+// 7. Case Rejected - Admin Notification
+caseRejectedAdmin: async (caseData, adminEmails) => {
+  const body = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background-color: #dc2626; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
+        <h1 style="color: white; margin: 0;">❌ Case Rejected</h1>
+      </div>
+      
+      <div style="padding: 20px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
+        <p>A case has been <strong style="color: #dc2626;">REJECTED</strong>.</p>
+        
+        <div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px; margin: 20px 0;">
+          <h3 style="margin-top: 0;">Case Details</h3>
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr><td style="padding: 8px 0;"><strong>Case ID:</strong></td><td style="padding: 8px 0;">#${caseData.caseId}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Client:</strong></td><td style="padding: 8px 0;">${caseData.clientName}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Client Email:</strong></td><td style="padding: 8px 0;">${caseData.clientEmail}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Rejected By:</strong></td><td style="padding: 8px 0;">${caseData.updatedBy || 'System'}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Rejection Reason:</strong></td><td style="padding: 8px 0;">${caseData.remarks}</td></tr>
+          </table>
+        </div>
+        
+        <div class="btn-center" style="text-align: center; margin: 30px 0;">
+          <a href="${process.env.ADMIN_URL}/cases/${caseData.caseId}" 
+             style="background-color: #dc2626; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block;">
+            View Case in Admin
+          </a>
+        </div>
+      </div>
+    </div>
+  `;
+
+  return sendEmail({
+    to: adminEmails,
+    subject: `❌ Case #${caseData.caseId} Rejected - Action Required`,
+    html: wrapEmail('Case Rejected', 'A case has been rejected', body)
+  });
+},
+
+// 8. Case Clarification Needed - Admin Notification
+caseClarificationNeededAdmin: async (caseData, adminEmails) => {
+  const body = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background-color: #f59e0b; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
+        <h1 style="color: white; margin: 0;">📝 Clarification Requested</h1>
+      </div>
+      
+      <div style="padding: 20px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
+        <p>Clarification has been requested for a case.</p>
+        
+        <div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px; margin: 20px 0;">
+          <h3 style="margin-top: 0;">Case Details</h3>
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr><td style="padding: 8px 0;"><strong>Case ID:</strong></td><td style="padding: 8px 0;">#${caseData.caseId}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Client:</strong></td><td style="padding: 8px 0;">${caseData.clientName}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Client Email:</strong></td><td style="padding: 8px 0;">${caseData.clientEmail}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Requested By:</strong></td><td style="padding: 8px 0;">${caseData.updatedBy || 'System'}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Requested Information:</strong></td><td style="padding: 8px 0;">${caseData.remarks}</td></tr>
+          </table>
+        </div>
+        
+        <div class="btn-center" style="text-align: center; margin: 30px 0;">
+          <a href="${process.env.ADMIN_URL}/cases/${caseData.caseId}" 
+             style="background-color: #f59e0b; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block;">
+            View Case in Admin
+          </a>
+        </div>
+      </div>
+    </div>
+  `;
+
+  return sendEmail({
+    to: adminEmails,
+    subject: `📝 Clarification Requested - Case #${caseData.caseId}`,
+    html: wrapEmail('Clarification Requested', 'Additional information needed', body)
+  });
+},
+
+// 9. Case In Review - Admin Notification
+caseInReviewAdmin: async (caseData, adminEmails) => {
+  const body = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background-color: #3b82f6; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
+        <h1 style="color: white; margin: 0;">🔄 Case In Review</h1>
+      </div>
+      
+      <div style="padding: 20px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
+        <p>A case has been moved to <strong style="color: #3b82f6;">IN REVIEW</strong> status.</p>
+        
+        <div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px; margin: 20px 0;">
+          <h3 style="margin-top: 0;">Case Details</h3>
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr><td style="padding: 8px 0;"><strong>Case ID:</strong></td><td style="padding: 8px 0;">#${caseData.caseId}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Client:</strong></td><td style="padding: 8px 0;">${caseData.clientName}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Client Email:</strong></td><td style="padding: 8px 0;">${caseData.clientEmail}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Updated By:</strong></td><td style="padding: 8px 0;">${caseData.updatedBy || 'System'}</td></tr>
+          </table>
+        </div>
+        
+        <div class="btn-center" style="text-align: center; margin: 30px 0;">
+          <a href="${process.env.ADMIN_URL}/cases/${caseData.caseId}" 
+             style="background-color: #3b82f6; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block;">
+            Review Case
+          </a>
+        </div>
+      </div>
+    </div>
+  `;
+
+  return sendEmail({
+    to: adminEmails,
+    subject: `🔄 Case #${caseData.caseId} In Review`,
+    html: wrapEmail('Case In Review', 'A case requires attention', body)
+  })
+},
+
 
   // Password reset confirmation
   passwordResetConfirmation: async ({ email, name }) => {

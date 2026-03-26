@@ -135,7 +135,7 @@ router.patch('/:caseId/status', async (req, res) => {
     } = req.body;
 
     // Validate status
-    if (!['pending', 'approved', 'rejected','clarification_needed','in_review'].includes(status)) {
+    if (!['pending', 'approved', 'rejected', 'clarification_needed', 'in_review'].includes(status)) {
       return res.status(400).json({
         success: false,
         message: 'Invalid status value'
@@ -152,9 +152,12 @@ router.patch('/:caseId/status', async (req, res) => {
       }
     }
 
-    // Check if case exists
+    // Check if case exists and get user details
     const caseCheck = await db.query(
-      'SELECT * FROM case_updated WHERE id = $1',
+      `SELECT c.*, u.email, u.first_name, u.last_name, u.role 
+       FROM case_updated c
+       LEFT JOIN users u ON c.user_id = u.id
+       WHERE c.id = $1`,
       [caseId]
     );
 
@@ -164,6 +167,9 @@ router.patch('/:caseId/status', async (req, res) => {
         message: 'Case not found'
       });
     }
+
+    const existingCase = caseCheck.rows[0];
+    const oldStatus = existingCase.status;
 
     // Build dynamic update query for case_updated
     let updateFields = ['status = $1', 'updated_at = CURRENT_TIMESTAMP'];
@@ -176,7 +182,7 @@ router.patch('/:caseId/status', async (req, res) => {
       values.push(total_deal_value);
       paramIndex++;
     }
-        if (total_profit !== undefined) {
+    if (total_profit !== undefined) {
       updateFields.push(`total_profit = $${paramIndex}`);
       values.push(total_profit);
       paramIndex++;
@@ -186,7 +192,7 @@ router.patch('/:caseId/status', async (req, res) => {
       values.push(profit_margin);
       paramIndex++;
     }
-        if (commission_percentage !== undefined) {
+    if (commission_percentage !== undefined) {
       updateFields.push(`commission_percentage = $${paramIndex}`);
       values.push(commission_percentage);
       paramIndex++;
@@ -226,6 +232,101 @@ router.patch('/:caseId/status', async (req, res) => {
       [caseId, status, remarks, updated_by]
     );
 
+    // 3️⃣ 📧 SEND EMAIL NOTIFICATIONS BASED ON STATUS
+    try {
+      const { emailTemplates } = require('../../services/emailService');
+      
+      // Get admin emails for notifications
+      const adminEmails = await db.query(
+        `SELECT email FROM users WHERE role IN ('admin_c', 'admin_a') AND is_active = true`
+      );
+      const adminEmailList = adminEmails.rows.map(admin => admin.email);
+      
+      // Case data for emails
+      const caseData = {
+        caseId: caseId,
+        caseTitle: existingCase.title || `Case #${caseId}`,
+        clientName: `${existingCase.first_name || ''} ${existingCase.last_name || ''}`.trim() || 'Client',
+        clientEmail: existingCase.email,
+        status: status,
+        oldStatus: oldStatus,
+        remarks: remarks,
+        updatedBy: updated_by,
+        updatedAt: new Date(),
+        financialDetails: status === 'approved' ? {
+          total_deal_value: total_deal_value || existingCase.total_deal_value,
+          profit_margin: profit_margin || existingCase.profit_margin,
+          total_profit: total_profit || existingCase.total_profit,
+          commission: commission || existingCase.commission,
+          commission_percentage: commission_percentage || existingCase.commission_percentage
+        } : null
+      };
+
+      // Send email based on status
+      switch (status) {
+        case 'approved':
+          // Send approval email to client
+          await emailTemplates.caseApproved(caseData);
+          console.log(`✅ Case approval email sent to client: ${existingCase.email}`);
+          
+          // Send notification to admins
+          if (adminEmailList.length > 0) {
+            await emailTemplates.caseApprovedAdmin(caseData, adminEmailList);
+            console.log(`✅ Case approval notification sent to admins`);
+          }
+          break;
+          
+        case 'rejected':
+          // Send rejection email to client with reason
+          await emailTemplates.caseRejected(caseData);
+          console.log(`❌ Case rejection email sent to client: ${existingCase.email}`);
+          
+          // Send notification to admins
+          if (adminEmailList.length > 0) {
+            await emailTemplates.caseRejectedAdmin(caseData, adminEmailList);
+            console.log(`❌ Case rejection notification sent to admins`);
+          }
+          break;
+          
+        case 'clarification_needed':
+          // Send clarification request email to client
+          await emailTemplates.caseClarificationNeeded(caseData);
+          console.log(`📝 Clarification request email sent to client: ${existingCase.email}`);
+          
+          // Send notification to admins
+          if (adminEmailList.length > 0) {
+            await emailTemplates.caseClarificationNeededAdmin(caseData, adminEmailList);
+            console.log(`📝 Clarification request notification sent to admins`);
+          }
+          break;
+          
+        case 'in_review':
+          // Send in-review notification to client
+          await emailTemplates.caseInReview(caseData);
+          console.log(`🔄 Case in-review email sent to client: ${existingCase.email}`);
+          
+          // Send notification to admins
+          if (adminEmailList.length > 0) {
+            await emailTemplates.caseInReviewAdmin(caseData, adminEmailList);
+            console.log(`🔄 Case in-review notification sent to admins`);
+          }
+          break;
+          
+        case 'pending':
+          // Send pending notification
+          await emailTemplates.casePending(caseData);
+          console.log(`⏳ Case pending email sent to client: ${existingCase.email}`);
+          break;
+          
+        default:
+          console.log(`No email template for status: ${status}`);
+      }
+      
+    } catch (emailError) {
+      console.error('⚠️ Failed to send status update email:', emailError.message);
+      // Don't fail the request if email fails
+    }
+
     res.json({
       success: true,
       message: `Case ${status} successfully`,
@@ -244,7 +345,6 @@ router.patch('/:caseId/status', async (req, res) => {
     });
   }
 });
-
 
 /**
  * GET /api/cases/user/:userId/summary
