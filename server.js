@@ -10,7 +10,7 @@ const rateLimit = require('express-rate-limit');
 const webbhookRoutes = require('./src/routes/webhookRoutes');
 const casesRoutes = require('./src/routes/case.routes');
 const twilioRoutes = require('./src/routes/twilioRoutes');
-const twilioMsgRoutes = require('./src/routes/twillomsg.Routes');
+const twilloNewRoutes = require('./src/routes/twilloNewRoutes');
 const teamRoutes = require('./src/routes/team.routes');
 const emailRoutes = require('./src/routes/emailRoutes');
 const caseChatRoutes = require('./src/routes/caseChatRoutes');
@@ -70,7 +70,7 @@ testConnection().then(isConnected => {
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/conversations', conversationRoutes);
-app.use('/api/twilio', twilioMsgRoutes);
+app.use('/api/twilio', twilloNewRoutes);
 app.use('/api/webhook', webbhookRoutes);
 app.use('/api/cases', casesRoutes);
 app.use('/api/team', teamRoutes);
