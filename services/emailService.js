@@ -1086,6 +1086,68 @@ caseInReviewAdmin: async (caseData, adminEmails) => {
     });
   },
 
+  // Add to emailService.js
+
+whatsappConversationStarted: async (data) => {
+  const body = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background-color: #25D366; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
+        <h1 style="color: white; margin: 0;">💬 New WhatsApp Message</h1>
+      </div>
+      
+      <div style="padding: 20px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
+        <p>Hello ${data.adminName},</p>
+        
+        <p>A new WhatsApp conversation has been started regarding <strong>Case #${data.caseId}</strong>.</p>
+        
+        <div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px; margin: 20px 0;">
+          <h3 style="margin-top: 0;">Customer Details</h3>
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr><td style="padding: 8px 0;"><strong>Name:</strong></td><td>${data.userName}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Phone:</strong></td><td>${data.userPhone}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Email:</strong></td><td>${data.userEmail}</td></tr>
+            <tr><td style="padding: 8px 0;"><strong>Case ID:</strong></td><td>#${data.caseId}</td></tr>
+          </table>
+        </div>
+        
+        <div style="background-color: #fef9e3; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0;">
+          <strong>First Message:</strong>
+          <p style="margin: 10px 0 0 0;">"${data.firstMessage}"</p>
+          <p style="margin: 10px 0 0 0; font-size: 12px; color: #6b7280;">
+            Received at: ${new Date(data.messageTime).toLocaleString()}
+          </p>
+        </div>
+        
+        <div class="btn-center" style="text-align: center; margin: 30px 0;">
+          <a href="${process.env.ADMIN_URL}/cases/${data.caseId}?tab=chat" 
+             style="background-color: #25D366; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; display: inline-block;">
+            Reply via WhatsApp
+          </a>
+        </div>
+        
+        <div class="note-box" style="background-color: #f3f4f6; padding: 15px; border-radius: 4px;">
+          <strong>Quick Reply Options:</strong>
+          <ul style="margin: 10px 0 0 20px;">
+            <li>Click the button above to open the case</li>
+            <li>Type your message and send</li>
+            <li>The customer will receive your reply on WhatsApp</li>
+          </ul>
+        </div>
+        
+        <p style="font-size: 12px; color: #6b7280; margin-top: 20px;">
+          This is a one-time notification for this conversation.
+        </p>
+      </div>
+    </div>
+  `;
+
+  return sendEmail({
+    to: data.adminEmail,
+    subject: `💬 New WhatsApp Message - Case #${data.caseId}`,
+    html: wrapEmail('New WhatsApp Message', 'Customer has started a conversation', body)
+  });
+},
+
   // Admin notification: new sub consultant registered
   adminNotification: (userData) => {
     const ADMIN_EMAIL = 'info@alhudafinancial.com';

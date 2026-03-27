@@ -10,8 +10,11 @@ const rateLimit = require('express-rate-limit');
 const webbhookRoutes = require('./src/routes/webhookRoutes');
 const casesRoutes = require('./src/routes/case.routes');
 const twilioRoutes = require('./src/routes/twilioRoutes');
+const twilioMsgRoutes = require('./src/routes/twillomsg.Routes');
 const teamRoutes = require('./src/routes/team.routes');
 const emailRoutes = require('./src/routes/emailRoutes');
+const caseChatRoutes = require('./src/routes/caseChatRoutes');
+const whatsappWebHooksRoutes = require('./src/routes/whatsappWebhook');
 const http = require('http');
 const { Server } = require('socket.io');
 
@@ -67,11 +70,13 @@ testConnection().then(isConnected => {
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/conversations', conversationRoutes);
-app.use('/api/twilio', twilioRoutes);
+app.use('/api/twilio', twilioMsgRoutes);
 app.use('/api/webhook', webbhookRoutes);
 app.use('/api/cases', casesRoutes);
 app.use('/api/team', teamRoutes);
 app.use('/api/email', emailRoutes);
+app.use('/api', caseChatRoutes);
+app.use('/api/email', whatsappWebHooksRoutes);
 // Request logging
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);

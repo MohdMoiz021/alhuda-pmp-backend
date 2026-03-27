@@ -453,6 +453,55 @@ router.post('/send-message', async (req, res) => {
   }
 });
 
+router.post('/send-messages', async (req, res) => {
+  try {
+    let { to, body, caseId } = req.body;
+
+    if (!to.startsWith('whatsapp:')) {
+      to = `whatsapp:${to}`;
+    }
+
+    const message = await client.messages.create({
+      from: process.env.TWILIO_WHATSAPP_NUMBER,
+      to,
+      body
+    });
+
+    // Emit to frontend instantly
+    const io = req.app.get('io');
+    io.to(`case_${caseId}`).emit('new_message', {
+      content: body,
+      senderRole: 'admin',
+      createdAt: new Date()
+    });
+
+    res.json({ success: true });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/webhooks', express.urlencoded({ extended: false }), (req, res) => {
+  const { From, Body, MessageSid } = req.body;
+
+  const clientNumber = From.replace('whatsapp:', '');
+  const caseId = getCaseIdFromPhoneNumber(clientNumber);
+
+  if (!caseId) return res.send('<Response></Response>');
+
+  const io = req.app.get('io');
+
+  io.to(`case_${caseId}`).emit('new_message', {
+    id: MessageSid,
+    content: Body,
+    senderRole: 'client',
+    createdAt: new Date()
+  });
+
+  res.send('<Response></Response>');
+});
+
 /**
  * Webhook to receive incoming WhatsApp messages
  * POST /api/twilio/webhook
