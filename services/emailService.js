@@ -950,6 +950,118 @@ casePending: async (caseData) => {
   });
 },
 
+whatsappFirstMessageToAdmin: (data) => {
+  const {
+    admin_name,
+    admin_email,
+    partner_name,
+    partner_phone,
+    case_reference,
+    case_id,
+    message_content,
+    sent_at
+  } = data;
+
+  const body = `
+    <p>Hi ${admin_name},</p>
+    <p>You have started a WhatsApp conversation with <strong>${partner_name}</strong> regarding case <strong>${case_reference}</strong>.</p>
+    
+    <div class="detail-block">
+      <div class="detail-row">
+        <span class="detail-label">Partner</span>
+        <span class="detail-value">${partner_name} (${partner_phone})</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-label">Case Reference</span>
+        <span class="detail-value">${case_reference}</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-label">Your Message</span>
+        <span class="detail-value">${message_content}</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-label">Sent On</span>
+        <span class="detail-value">${sent_at}</span>
+      </div>
+    </div>
+    
+    <div class="info-box">
+      <strong>📱 WhatsApp Conversation Started</strong><br/>
+      You can now continue the conversation on WhatsApp. The partner will receive a notification and can reply directly.
+    </div>
+    
+    <div class="btn-center">
+      <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/cases/${case_id}" class="btn">View Case</a>
+      &nbsp;&nbsp;
+      <a href="https://wa.me/${partner_phone.replace('+', '')}" class="btn btn-secondary">Open WhatsApp</a>
+    </div>
+  `;
+
+  return sendEmail({
+    to: admin_email,
+    subject: `📱 WhatsApp Conversation Started — ${case_reference}`,
+    html: wrapEmail('WhatsApp Conversation', `You started a conversation with ${partner_name}`, body),
+  });
+},
+
+// WhatsApp First Message Notification to Partner
+whatsappFirstMessageToPartner: (data) => {
+  const {
+    partner_name,
+    partner_email,
+    partner_phone,
+    case_reference,
+    case_id,
+    message_content,
+    sent_at,
+    admin_name
+  } = data;
+
+  const body = `
+    <p>Dear ${partner_name},</p>
+    
+    <p><strong>Alhuda CIBE Financial</strong> has sent you a message regarding your case <strong>${case_reference}</strong>.</p>
+    
+    <div class="detail-block">
+      <div class="detail-row">
+        <span class="detail-label">Case Reference</span>
+        <span class="detail-value">${case_reference}</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-label">Message from Admin</span>
+        <span class="detail-value">"${message_content}"</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-label">Sent On</span>
+        <span class="detail-value">${sent_at}</span>
+      </div>
+    </div>
+    
+    <div class="info-box">
+      <strong>📱 Check Your WhatsApp</strong><br/>
+      The message has been sent to your WhatsApp number: <strong>${partner_phone}</strong><br/>
+      Please check WhatsApp and reply directly to continue the conversation.
+    </div>
+    
+    <div class="btn-center">
+      <a href="https://wa.me/${partner_phone.replace('+', '')}" class="btn btn-whatsapp">📱 Reply on WhatsApp</a>
+      &nbsp;&nbsp;
+      <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/partner/cases/${case_id}" class="btn btn-secondary">View Case Details</a>
+    </div>
+    
+    <div class="note">
+      <strong>💡 Note:</strong> Once you reply on WhatsApp, you can continue the conversation there. If you have any issues, please contact support.
+    </div>
+  `;
+
+  return sendEmail({
+    to: partner_email,
+    subject: `📱 New Message from Alhuda CIBE Financial — Case ${case_reference}`,
+    html: wrapEmail('WhatsApp Message', `You have a new message regarding your case`, body),
+  });
+},
+
+
 // 7. Case Rejected - Admin Notification
 caseRejectedAdmin: async (caseData, adminEmails) => {
   const body = `
@@ -1505,6 +1617,8 @@ approvalStatus: (userData, status, reason = null) => {
       html: wrapEmail('Case Management', 'New case received.', body),
     });
   },
+
+  // WhatsApp First Message Notification to Admin
 
   // Generic notification
   notification: async (to, subject, message, type = 'info') => {

@@ -3,7 +3,7 @@ const router = express.Router();
 const twilio = require('twilio');
 const fs = require('fs');
 const path = require('path');
-
+const emailService = require('../../services/emailService');
 // Initialize Twilio client
 const client = twilio(
   process.env.TWILIO_ACCOUNT_SID,
@@ -133,8 +133,47 @@ router.post('/send-template', async (req, res) => {
       lastTemplateSid: message.sid,
       hasReplied: false
     });
+
+        // SEND EMAIL NOTIFICATIONS (only for first message)
+    const sentAt = new Date().toLocaleString('en-US', {
+      dateStyle: 'full',
+      timeStyle: 'medium'
+    });
+    
+    // Email to Admin
+    if (adminEmail && adminName) {
+      await emailService.emailTemplates.whatsappFirstMessageToAdmin({
+        admin_name: adminName,
+        admin_email: adminEmail,
+        partner_name: partnerName,
+        partner_phone: partnerPhone,
+        case_reference: caseNumber,
+        case_id: caseId,
+        message_content: customMessage,
+        sent_at: sentAt
+      });
+      console.log(`📧 Email sent to admin: ${adminEmail}`);
+    }
+    
+    // Email to Partner
+    if (partnerEmail) {
+      await emailService.emailTemplates.whatsappFirstMessageToPartner({
+        partner_name: partnerName,
+        partner_email: partnerEmail,
+        partner_phone: partnerPhone,
+        case_reference: caseNumber,
+        case_id: caseId,
+        message_content: customMessage,
+        sent_at: sentAt,
+        admin_name: adminName || 'Admin'
+      });
+      console.log(`📧 Email sent to partner: ${partnerEmail}`);
+    }
     
     console.log(`✅ Template sent to ${partnerName} (${partnerPhone})`);
+    console.log(`📧 Email notifications sent for first message`);
+    
+    
     
     res.json({
       success: true,
