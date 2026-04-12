@@ -991,7 +991,7 @@ whatsappFirstMessageToAdmin: (data) => {
     </div>
     
     <div class="btn-center">
-      <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/cases/${case_id}" class="btn">View Case</a>
+      <a href="${process.env.FRONTEND_URL || 'https://portal.alhudafinancial.com/'}/cases/${case_id}" class="btn">View Case</a>
       &nbsp;&nbsp;
       <a href="https://wa.me/${partner_phone.replace('+', '')}" class="btn btn-secondary">Open WhatsApp</a>
     </div>
@@ -1046,7 +1046,7 @@ whatsappFirstMessageToPartner: (data) => {
     <div class="btn-center">
       <a href="https://wa.me/${partner_phone.replace('+', '')}" class="btn btn-whatsapp">📱 Reply on WhatsApp</a>
       &nbsp;&nbsp;
-      <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/partner/cases/${case_id}" class="btn btn-secondary">View Case Details</a>
+      <a href="${process.env.FRONTEND_URL || 'https://portal.alhudafinancial.com/'}/partner/cases/${case_id}" class="btn btn-secondary">View Case Details</a>
     </div>
     
     <div class="note">
@@ -1185,7 +1185,7 @@ caseInReviewAdmin: async (caseData, adminEmails) => {
       <p>Hi ${name},</p>
       <p>Your password has been successfully updated. You can now sign in with your new credentials.</p>
       <div class="btn-center">
-        <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/login" class="btn">Sign In</a>
+        <a href="${process.env.FRONTEND_URL || 'https://portal.alhudafinancial.com/'}/login" class="btn">Sign In</a>
       </div>
       <div class="warning-box">
         If you didn't make this change, please contact support immediately.
@@ -1282,7 +1282,7 @@ whatsappConversationStarted: async (data) => {
         <div class="detail-row"><span class="detail-label">Registered</span><span class="detail-value">${new Date().toLocaleString()}</span></div>
       </div>
       <div class="btn-center">
-        <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/admin/users/${userData.id}/approve" class="btn">Review Application</a>
+        <a href="${process.env.FRONTEND_URL || 'https://portal.alhudafinancial.com/'}/admin/users/${userData.id}/approve" class="btn">Review Application</a>
       </div>
     `;
     return sendEmail({
@@ -1316,7 +1316,7 @@ whatsappConversationStarted: async (data) => {
         <div class="detail-row"><span class="detail-label">Assigned On</span><span class="detail-value">${assigned_date}</span></div>
       </div>
       <div class="btn-center">
-        <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/cases/${case_id}" class="btn">View Case</a>
+        <a href="${process.env.FRONTEND_URL || 'https://portal.alhudafinancial.com/'}/cases/${case_id}" class="btn">View Case</a>
       </div>
     `;
     return sendEmail({
@@ -1413,7 +1413,7 @@ whatsappConversationStarted: async (data) => {
         <div class="detail-row"><span class="detail-label">Assigned On</span><span class="detail-value">${assigned_date}</span></div>
       </div>
       <div class="btn-center">
-        <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/admin/cases/${case_id}" class="btn">View Case</a>
+        <a href="${process.env.FRONTEND_URL || 'https://portal.alhudafinancial.com/'}/admin/cases/${case_id}" class="btn">View Case</a>
       </div>
     `;
     return sendEmail({
@@ -1438,7 +1438,7 @@ whatsappConversationStarted: async (data) => {
         <div class="detail-row"><span class="detail-label">Approved On</span><span class="detail-value">${new Date().toLocaleString()}</span></div>
       </div>
       <div class="btn-center">
-        <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/admin/users" class="btn">View All Users</a>
+        <a href="${process.env.FRONTEND_URL || 'https://portal.alhudafinancial.com/'}/admin/users" class="btn">View All Users</a>
       </div>
     `;
     return sendEmail({
@@ -1485,7 +1485,7 @@ approvalStatus: (userData, status, reason = null) => {
     </ul>
     
     <div class="btn-center">
-      <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/login" class="btn">Sign In to Your Account</a>
+      <a href="${process.env.FRONTEND_URL || 'https://portal.alhudafinancial.com/'}/login" class="btn">Sign In to Your Account</a>
     </div>
     
     <div class="note-box">
@@ -1574,7 +1574,7 @@ approvalStatus: (userData, status, reason = null) => {
         <li>Log in to track your case at any time</li>
       </ul>
       <div class="btn-center">
-        <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/cases/track?ref=${case_reference}" class="btn">Track Your Case</a>
+        <a href="${process.env.FRONTEND_URL || 'https://portal.alhudafinancial.com/'}/cases/track?ref=${case_reference}" class="btn">Track Your Case</a>
       </div>
     `;
     return sendEmail({
@@ -1608,7 +1608,7 @@ approvalStatus: (userData, status, reason = null) => {
         <div class="detail-row"><span class="detail-label">Submitted On</span><span class="detail-value">${submitted_date}</span></div>
       </div>
       <div class="btn-center">
-        <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/admin/cases/${case_id}" class="btn">Review Case</a>
+        <a href="${process.env.FRONTEND_URL || 'https://portal.alhudafinancial.com/'}/admin/cases/${case_id}" class="btn">Review Case</a>
       </div>
     `;
     return sendEmail({
