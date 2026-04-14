@@ -317,7 +317,7 @@ const reconnect = () => {
 // ─── Email Templates ──────────────────────────────────────────────────────────
 const emailTemplates = {
 
-  // Welcome email for auto-approved users
+  // Welcome email for auto-approved user
   welcome: async (to, name) => {
     const body = `
       <p>Hi ${name},</p>
