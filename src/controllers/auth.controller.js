@@ -327,6 +327,7 @@ const register = async (req, res) => {
       whatsapp_number,
       company_name, 
       location,
+      referral_code,
       role 
     } = req.body;
     
@@ -371,14 +372,32 @@ const register = async (req, res) => {
     }
     
     // Insert user with new fields
-    const newUser = await pool.query(
-      `INSERT INTO users 
-       (email, password_hash, first_name, last_name, phone, whatsapp_number, company_name, location, role, is_active) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) 
-       RETURNING id, email, first_name, last_name, phone, whatsapp_number, company_name, location, role, is_active, created_at`,
-      [email, hashedPassword, first_name, last_name, phone, whatsapp_number || null, company_name, location || null, role, is_active]
-    );
+const newUser = await pool.query(
+  `INSERT INTO users 
+   (email, password_hash, first_name, last_name, phone, whatsapp_number, company_name, location, role, is_active, referral_code) 
+   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) 
+   RETURNING id, email, first_name, last_name, phone, whatsapp_number, company_name, location, role, is_active, referral_code, created_at`,
+  [
+    email, 
+    hashedPassword, 
+    first_name, 
+    last_name, 
+    phone, 
+    whatsapp_number || null, 
+    company_name, 
+    location || null, 
+    role, 
+    is_active,
+    referral_code || null // 👈 important
+  ]
+);
 
+if (referral_code && referral_code.length > 50) {
+  return res.status(400).json({
+    success: false,
+    message: 'Referral code too long'
+  });
+}
     const user = newUser.rows[0];
     const token = generateToken(user);
 
@@ -580,6 +599,7 @@ const getAllUsers = async (req, res) => {
         role, 
         is_active,
         created_at,
+        referral_code,
         updated_at
        FROM users 
        ORDER BY created_at DESC`
@@ -624,6 +644,7 @@ const getUserById = async (req, res) => {
         company_name, 
         role, 
         is_active,
+        referral_code,
         created_at,
         updated_at
        FROM users 

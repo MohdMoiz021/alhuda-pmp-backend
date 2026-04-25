@@ -15,6 +15,7 @@ const teamRoutes = require('./src/routes/team.routes');
 const emailRoutes = require('./src/routes/emailRoutes');
 const caseChatRoutes = require('./src/routes/caseChatRoutes');
 const whatsappWebHooksRoutes = require('./src/routes/whatsappWebhook');
+const referralRoutes = require('./src/routes/referral.routes');
 const http = require('http');
 const { Server } = require('socket.io');
 
@@ -72,6 +73,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/conversations', conversationRoutes);
 app.use('/api/twilio', twilloNewRoutes);
 app.use('/api/webhook', webbhookRoutes);
+app.use('/api/referral', referralRoutes);
 app.use('/api/cases', casesRoutes);
 app.use('/api/team', teamRoutes);
 app.use('/api/email', emailRoutes);
