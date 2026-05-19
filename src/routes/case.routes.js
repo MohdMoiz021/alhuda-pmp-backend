@@ -1608,6 +1608,270 @@ router.post('/', upload.any(), uploadToS3, async (req, res) => {
 });
 
 
+router.put('/:id', upload.any(), uploadToS3, async (req, res) => {
+  try {
+    const caseId = req.params.id;
+    const formData = req.body;
+    
+    // First, get existing case data
+    const existingCaseQuery = `SELECT * FROM case_updated WHERE id = $1`;
+    const existingCaseResult = await db.query(existingCaseQuery, [caseId]);
+    
+    if (existingCaseResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Case not found'
+      });
+    }
+    
+    const existingCase = existingCaseResult.rows[0];
+    
+    // Handle new uploaded files
+    let newDocuments = [];
+    if (req.files && req.files.length > 0) {
+      newDocuments = (req.uploadedFiles || []).map(file => ({
+        originalName: file.originalName,
+        mimeType: file.mimeType,
+        size: file.size,
+        s3Key: file.s3Key,
+        bucket: file.bucket,
+        url: `https://alhuda-crm.s3.me-central-1.amazonaws.com/${file.s3Key}`,
+        uploadedAt: new Date().toISOString(),
+        document_type: file.fieldname
+      }));
+    }
+    
+    // Merge existing documents with new ones
+    let existingS3Documents = existingCase.s3_documents || [];
+    if (typeof existingS3Documents === 'string') {
+      existingS3Documents = JSON.parse(existingS3Documents);
+    }
+    
+    let existingDocumentPaths = existingCase.document_paths || [];
+    if (typeof existingDocumentPaths === 'string') {
+      existingDocumentPaths = JSON.parse(existingDocumentPaths);
+    }
+    
+    // Add new documents to existing arrays
+    const updatedS3Documents = [...existingS3Documents, ...newDocuments];
+    const updatedDocumentPaths = [
+      ...existingDocumentPaths,
+      ...newDocuments.map(doc => doc.s3Key)
+    ];
+    
+    // Determine main and additional documents (combine existing and new)
+    let existingMainDocument = existingCase.main_document;
+    if (typeof existingMainDocument === 'string') {
+      existingMainDocument = JSON.parse(existingMainDocument);
+    }
+    
+    let existingAdditionalDocuments = existingCase.additional_documents || [];
+    if (typeof existingAdditionalDocuments === 'string') {
+      existingAdditionalDocuments = JSON.parse(existingAdditionalDocuments);
+    }
+    
+    // Update main document if a new main document is uploaded
+    let updatedMainDocument = existingMainDocument;
+    const newMainDocument = newDocuments.find(doc => doc.document_type === 'documents');
+    if (newMainDocument) {
+      updatedMainDocument = newMainDocument;
+    }
+    
+    // Update additional documents
+    const newAdditionalDocuments = newDocuments.filter(doc => doc.document_type === 'additional_documents');
+    const updatedAdditionalDocuments = [...existingAdditionalDocuments, ...newAdditionalDocuments];
+    
+    // Prepare update fields (only update fields that are provided)
+    const {
+      case_type,
+      case_sub_type,
+      description,
+      additional_notes,
+      priority,
+      partner_name,
+      partner_email,
+      user_id,
+      source,
+      status
+    } = formData;
+    
+    // Build dynamic update query
+    const updateFields = [];
+    const values = [];
+    let paramCounter = 1;
+    
+    if (case_type !== undefined) {
+      updateFields.push(`case_type = $${paramCounter++}`);
+      values.push(case_type);
+    }
+    if (case_sub_type !== undefined) {
+      updateFields.push(`case_sub_type = $${paramCounter++}`);
+      values.push(case_sub_type);
+    }
+    if (description !== undefined) {
+      updateFields.push(`description = $${paramCounter++}`);
+      values.push(description);
+    }
+    if (additional_notes !== undefined) {
+      updateFields.push(`additional_notes = $${paramCounter++}`);
+      values.push(additional_notes);
+    }
+    if (priority !== undefined) {
+      updateFields.push(`priority = $${paramCounter++}`);
+      values.push(priority);
+    }
+    if (partner_name !== undefined) {
+      updateFields.push(`partner_name = $${paramCounter++}`);
+      values.push(partner_name);
+    }
+    if (partner_email !== undefined) {
+      updateFields.push(`partner_email = $${paramCounter++}`);
+      values.push(partner_email);
+    }
+    if (user_id !== undefined) {
+      updateFields.push(`user_id = $${paramCounter++}`);
+      values.push(user_id ? parseInt(user_id) : null);
+    }
+    if (source !== undefined) {
+      updateFields.push(`source = $${paramCounter++}`);
+      values.push(source);
+    }
+    if (status !== undefined) {
+      updateFields.push(`status = $${paramCounter++}`);
+      values.push(status);
+    }
+    
+    // Always update these if there are new documents
+    if (newDocuments.length > 0) {
+      updateFields.push(`document_paths = $${paramCounter++}`);
+      values.push(JSON.stringify(updatedDocumentPaths));
+      
+      updateFields.push(`s3_documents = $${paramCounter++}`);
+      values.push(JSON.stringify(updatedS3Documents));
+      
+      updateFields.push(`main_document = $${paramCounter++}`);
+      values.push(updatedMainDocument ? JSON.stringify(updatedMainDocument) : null);
+      
+      updateFields.push(`additional_documents = $${paramCounter++}`);
+      values.push(updatedAdditionalDocuments.length > 0 ? JSON.stringify(updatedAdditionalDocuments) : null);
+    }
+    
+    // Always update the updated_at timestamp
+    updateFields.push(`updated_at = $${paramCounter++}`);
+    values.push(new Date());
+    
+    if (updateFields.length === 1 && newDocuments.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No fields to update'
+      });
+    }
+    
+    // Add case ID as the last parameter
+    values.push(caseId);
+    
+    const query = `
+      UPDATE case_updated 
+      SET ${updateFields.join(', ')}
+      WHERE id = $${paramCounter}
+      RETURNING *;
+    `;
+    
+    const result = await db.query(query, values);
+    const updatedCase = result.rows[0];
+    
+    // Send email notifications for the update
+    try {
+      // Notify partner about the update if there are changes or new documents
+      if (updatedCase.partner_email && (Object.keys(formData).length > 0 || newDocuments.length > 0)) {
+        await emailTemplates.caseUpdatedNotification({
+          partner_name: updatedCase.partner_name || 'Valued Partner',
+          partner_email: updatedCase.partner_email,
+          case_reference: updatedCase.case_reference,
+          case_type: updatedCase.case_type,
+          case_sub_type: updatedCase.case_sub_type,
+          updated_fields: Object.keys(formData).join(', '),
+          new_documents_count: newDocuments.length,
+          update_date: new Date().toLocaleString(),
+          status: updatedCase.status,
+          additional_notes: updatedCase.additional_notes
+        });
+        console.log(`✅ Case update email sent to partner: ${updatedCase.partner_email}`);
+      }
+      
+      // Notify admin about the update
+      const ADMIN_EMAIL = 'tech@alhudafinancial.com';
+      await emailTemplates.caseUpdatedAdminNotification({
+        admin_name: 'Admin',
+        admin_email: ADMIN_EMAIL,
+        partner_name: updatedCase.partner_name,
+        partner_email: updatedCase.partner_email,
+        case_reference: updatedCase.case_reference,
+        case_type: updatedCase.case_type,
+        case_sub_type: updatedCase.case_sub_type,
+        updated_fields: Object.keys(formData).join(', '),
+        new_documents_count: newDocuments.length,
+        update_date: new Date().toLocaleString(),
+        status: updatedCase.status,
+        case_id: updatedCase.id
+      });
+      console.log(`✅ Admin update notification sent to: ${ADMIN_EMAIL}`);
+      
+    } catch (emailError) {
+      console.error('❌ Error sending case update emails:', emailError);
+    }
+    
+    // Parse JSON fields for response
+    const responseData = {
+      ...updatedCase,
+      s3_documents: typeof updatedCase.s3_documents === 'string' 
+        ? JSON.parse(updatedCase.s3_documents) 
+        : updatedCase.s3_documents,
+      document_paths: typeof updatedCase.document_paths === 'string' 
+        ? JSON.parse(updatedCase.document_paths) 
+        : updatedCase.document_paths,
+      main_document: typeof updatedCase.main_document === 'string' 
+        ? JSON.parse(updatedCase.main_document) 
+        : updatedCase.main_document,
+      additional_documents: typeof updatedCase.additional_documents === 'string' 
+        ? JSON.parse(updatedCase.additional_documents || '[]') 
+        : updatedCase.additional_documents
+    };
+    
+    res.status(200).json({
+      success: true,
+      message: 'Case updated successfully',
+      data: {
+        id: responseData.id,
+        case_type: responseData.case_type,
+        case_sub_type: responseData.case_sub_type,
+        description: responseData.description,
+        additional_notes: responseData.additional_notes,
+        priority: responseData.priority,
+        partner_name: responseData.partner_name,
+        partner_email: responseData.partner_email,
+        case_reference: responseData.case_reference,
+        status: responseData.status,
+        documents: {
+          main: responseData.main_document || null,
+          additional: responseData.additional_documents || [],
+          all: responseData.s3_documents || []
+        },
+        updated_at: responseData.updated_at,
+        new_documents_added: newDocuments.length
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error updating case:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update case',
+      error: error.message
+    });
+  }
+});
+
 // GET endpoint - Get all cases
 router.get('/', async (req, res) => {
   try {
