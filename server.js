@@ -16,6 +16,8 @@ const emailRoutes = require('./src/routes/emailRoutes');
 const caseChatRoutes = require('./src/routes/caseChatRoutes');
 const whatsappWebHooksRoutes = require('./src/routes/whatsappWebhook');
 const referralRoutes = require('./src/routes/referral.routes');
+const servicesRoutes = require('./src/routes/services.routes');
+const { ensureSchema } = require('./src/db/ensureSchema');
 const http = require('http');
 const { Server } = require('socket.io');
 
@@ -59,14 +61,33 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Test database connection on startup
-testConnection().then(isConnected => {
+// Test database connection on startup, then ensure schema is up to date
+testConnection().then(async isConnected => {
   if (isConnected) {
     console.log('🚀 Database ready for connections');
+    try {
+      await ensureSchema();
+    } catch (err) {
+      console.error('⚠️  Schema bootstrap failed. Some features may not work until resolved.');
+    }
   } else {
     console.log('⚠️  Database connection issues. Server will start but DB operations may fail.');
   }
 });
+
+// Stricter rate limit for authentication endpoints (brute force / signup abuse)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: parseInt(process.env.AUTH_RATE_LIMIT || '20', 10),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Too many attempts from this IP. Please wait a few minutes and try again.'
+  }
+});
+
+app.use(['/api/auth/login', '/api/auth/register', '/api/auth/resend-verification', '/api/auth/forgot-password'], authLimiter);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
@@ -74,6 +95,7 @@ app.use('/api/conversations', conversationRoutes);
 app.use('/api/twilio', twilloNewRoutes);
 app.use('/api/webhook', webbhookRoutes);
 app.use('/api/referral', referralRoutes);
+app.use('/api/services', servicesRoutes);
 app.use('/api/cases', casesRoutes);
 app.use('/api/team', teamRoutes);
 app.use('/api/email', emailRoutes);

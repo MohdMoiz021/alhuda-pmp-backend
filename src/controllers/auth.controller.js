@@ -1,7 +1,54 @@
 // src/controllers/authController.js
+const crypto = require('crypto');
 const { pool } = require('../../db');
 const { generateToken, hashPassword, comparePassword } = require('../utils/auth');
 const { sendEmail, emailTemplates } = require('../../services/emailService');
+const { verifyTurnstile } = require('../utils/turnstile');
+
+const SIGNUP_IP_DAILY_MAX = parseInt(process.env.SIGNUP_IP_DAILY_MAX || '5', 10);
+const clientIp = (req) => (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.ip || null;
+// Hidden honeypot form field — real users never fill it.
+const honeypotTripped = (body) => {
+  const v = body && (body.company_website ?? body.website ?? body.url);
+  return typeof v === 'string' && v.trim().length > 0;
+};
+
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+
+// Reject obviously junk / disposable-looking email addresses.
+const DISPOSABLE_EMAIL_DOMAINS = new Set([
+  'mailinator.com', 'guerrillamail.com', 'guerrillamail.info', 'sharklasers.com',
+  '10minutemail.com', 'tempmail.com', 'temp-mail.org', 'trashmail.com', 'yopmail.com',
+  'getnada.com', 'dispostable.com', 'maildrop.cc', 'fakeinbox.com', 'throwawaymail.com',
+  'mohmal.com', 'emailondeck.com', 'mailnesia.com', 'spamgourmet.com', 'mintemail.com',
+]);
+
+const isPlausibleEmail = (email) => {
+  if (typeof email !== 'string') return false;
+  const value = email.trim().toLowerCase();
+  // Standard shape + a real TLD of 2+ chars.
+  if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/.test(value)) return false;
+  const [local, domain] = value.split('@');
+  if (DISPOSABLE_EMAIL_DOMAINS.has(domain)) return false;
+  // Bot-style local parts, e.g. "397937549@..."
+  if (/^\d{6,}$/.test(local)) return false;
+  // Nonsense domains: no vowels at all in the SLD is a strong junk signal.
+  const sld = domain.split('.').slice(-2, -1)[0] || '';
+  if (sld.length >= 5 && !/[aeiou]/i.test(sld)) return false;
+  return true;
+};
+
+const makeVerificationToken = () => crypto.randomBytes(32).toString('hex');
+
+const sendVerificationEmail = async (user, token) => {
+  const verify_url = `${FRONTEND_URL}/verify-email?token=${token}`;
+  await emailTemplates.verifyEmail({
+    name: `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email,
+    email: user.email,
+    verify_url,
+  });
+};
 // const register = async (req, res) => {
 //   try {
 //     const { email, password, first_name, last_name, phone, company_name, role } = req.body;
@@ -83,13 +130,23 @@ const { sendEmail, emailTemplates } = require('../../services/emailService');
 // Login User
 const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, turnstile_token } = req.body;
 
     // Basic validation
     if (!email || !password) {
       return res.status(400).json({
         success: false,
         message: 'Email and password are required'
+      });
+    }
+
+    // Bot / brute-force check
+    const turnstile = await verifyTurnstile(turnstile_token, clientIp(req));
+    if (!turnstile.ok) {
+      return res.status(400).json({
+        success: false,
+        status: 'captcha_failed',
+        message: 'Could not verify that you are human. Please complete the check and try again.'
       });
     }
 
@@ -108,11 +165,30 @@ const login = async (req, res) => {
 
     const user = userResult.rows[0];
 
+    // Archived ("Done Working With") accounts cannot log in.
+    if (user.archived_at) {
+      return res.status(403).json({
+        success: false,
+        status: 'archived',
+        message: 'This account has been archived. Please contact support if you believe this is an error.'
+      });
+    }
+
     // ==================== ACCOUNT STATUS CHECK ====================
     // is_active can be: null (pending), true (approved), false (rejected)
-    
+
     // For Sub Consultants (admin_a) - Check account status
     if (user.role === 'admin_a') {
+      // Email ownership must be confirmed before anything else.
+      if (user.email_verified === false) {
+        return res.status(403).json({
+          success: false,
+          status: 'email_unverified',
+          message: 'Please verify your email address before logging in. Check your inbox for the verification link.',
+          data: { email: user.email }
+        });
+      }
+
       // Case 1: Account is pending approval (is_active === null)
       if (user.is_active === null) {
         return res.status(403).json({
@@ -325,12 +401,13 @@ const register = async (req, res) => {
       last_name, 
       phone, 
       whatsapp_number,
-      company_name, 
+      company_name,
       location,
       referral_code,
-      role 
+      turnstile_token,
+      role
     } = req.body;
-    
+
     if (!email || !password || !role) {
       return res.status(400).json({
         success: false,
@@ -343,6 +420,58 @@ const register = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Invalid role. Must be admin_a, admin_b, or admin_c'
+      });
+    }
+
+    // Bot protection — public partner signup only (internal users are created by an
+    // authenticated admin and don't go through the Turnstile widget).
+    const isPublicSignup = role === 'admin_a';
+    if (isPublicSignup) {
+      if (honeypotTripped(req.body)) {
+        // Silent-ish reject; don't tell the bot what tripped it.
+        return res.status(400).json({ success: false, status: 'bot_check_failed', message: 'Registration could not be completed. Please try again.' });
+      }
+
+      const turnstile = await verifyTurnstile(turnstile_token, clientIp(req));
+      if (!turnstile.ok) {
+        return res.status(400).json({
+          success: false,
+          status: 'captcha_failed',
+          message: 'Could not verify that you are human. Please complete the check and try again.'
+        });
+      }
+
+      // Per-IP signup velocity cap
+      const ip = clientIp(req);
+      if (ip) {
+        const recent = await pool.query(
+          `SELECT COUNT(*)::int AS count FROM users
+           WHERE signup_ip = $1 AND created_at > NOW() - INTERVAL '24 hours'`,
+          [ip]
+        );
+        if (recent.rows[0].count >= SIGNUP_IP_DAILY_MAX) {
+          return res.status(429).json({
+            success: false,
+            status: 'too_many_signups',
+            message: 'Too many registrations from your network today. Please try again tomorrow or contact support.'
+          });
+        }
+      }
+    }
+
+    // Reject junk / disposable email addresses
+    if (!isPlausibleEmail(email)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please use a valid, permanent email address.'
+      });
+    }
+
+    // Password strength
+    if (typeof password !== 'string' || password.length < 8 || !/(?=.*[A-Za-z])(?=.*\d)/.test(password)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 8 characters and include letters and numbers.'
       });
     }
 
@@ -371,24 +500,35 @@ const register = async (req, res) => {
       is_active = true; // Auto-approved for internal team
     }
     
+    // Partners must verify their email; internal team members are pre-verified.
+    const needsEmailVerification = role === 'admin_a';
+    const verificationToken = needsEmailVerification ? makeVerificationToken() : null;
+    const verificationExpires = needsEmailVerification
+      ? new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS)
+      : null;
+
     // Insert user with new fields
 const newUser = await pool.query(
-  `INSERT INTO users 
-   (email, password_hash, first_name, last_name, phone, whatsapp_number, company_name, location, role, is_active, referral_code) 
-   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) 
-   RETURNING id, email, first_name, last_name, phone, whatsapp_number, company_name, location, role, is_active, referral_code, created_at`,
+  `INSERT INTO users
+   (email, password_hash, first_name, last_name, phone, whatsapp_number, company_name, location, role, is_active, referral_code, email_verified, email_verification_token, email_verification_expires, signup_ip)
+   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+   RETURNING id, email, first_name, last_name, phone, whatsapp_number, company_name, location, role, is_active, referral_code, email_verified, created_at`,
   [
-    email, 
-    hashedPassword, 
-    first_name, 
-    last_name, 
-    phone, 
-    whatsapp_number || null, 
-    company_name, 
-    location || null, 
-    role, 
+    email,
+    hashedPassword,
+    first_name,
+    last_name,
+    phone,
+    whatsapp_number || null,
+    company_name,
+    location || null,
+    role,
     is_active,
-    referral_code || null // 👈 important
+    referral_code || null, // 👈 important
+    !needsEmailVerification,
+    verificationToken,
+    verificationExpires,
+    clientIp(req)
   ]
 );
 
@@ -405,7 +545,13 @@ if (referral_code && referral_code.length > 50) {
     try {
       if (role === 'admin_a') {
         // Partner registration - needs approval
-        
+
+        // 0. Send email verification link
+        if (verificationToken) {
+          await sendVerificationEmail(user, verificationToken);
+          console.log(`✅ Verification email sent to partner: ${user.email}`);
+        }
+
         // 1. Send email to user (pending approval)
         await emailTemplates.registrationPending({
           ...user,
@@ -463,8 +609,8 @@ if (referral_code && referral_code.length > 50) {
 
     res.status(201).json({
       success: true,
-      message: role === 'admin_a' 
-        ? 'Partner application submitted successfully. Awaiting admin approval.' 
+      message: role === 'admin_a'
+        ? 'Partner application submitted. Please check your inbox and verify your email address, then wait for admin approval.'
         : 'Internal team member registered successfully',
       data: {
         user,
@@ -587,21 +733,28 @@ const getAllUsers = async (req, res) => {
       });
     }
 
+    // Archived users are hidden unless explicitly requested.
+    const includeArchived = String(req.query.include_archived || '').toLowerCase() === 'true';
+
     // Fetch all users with all fields except password_hash
     const usersResult = await pool.query(
-      `SELECT 
-        id, 
-        email, 
-        first_name, 
-        last_name, 
-        phone, 
-        company_name, 
-        role, 
+      `SELECT
+        id,
+        email,
+        first_name,
+        last_name,
+        phone,
+        company_name,
+        role,
         is_active,
+        email_verified,
+        archived_at,
+        archived_reason,
         created_at,
         referral_code,
         updated_at
-       FROM users 
+       FROM users
+       ${includeArchived ? '' : 'WHERE archived_at IS NULL'}
        ORDER BY created_at DESC`
     );
 
@@ -891,6 +1044,13 @@ const deleteUser = async (req, res) => {
     });
 
   } catch (error) {
+    // Foreign-key violation: user still has cases / activity attached.
+    if (error.code === '23503') {
+      return res.status(409).json({
+        success: false,
+        message: 'This account has related cases or activity and cannot be permanently deleted. Use "Done Working With" to archive it instead.'
+      });
+    }
     console.error('Delete user error:', error);
     res.status(500).json({
       success: false,
@@ -899,16 +1059,163 @@ const deleteUser = async (req, res) => {
   }
 };
 
+// Archive / restore a partner account ("Done Working With")
+const archiveUser = async (req, res) => {
+  try {
+    if (!['admin_b', 'admin_c'].includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied.'
+      });
+    }
+
+    const { id } = req.params;
+    const { archived, reason } = req.body;
+
+    if (typeof archived !== 'boolean') {
+      return res.status(400).json({
+        success: false,
+        message: 'archived must be a boolean value'
+      });
+    }
+
+    if (parseInt(id) === req.user.id) {
+      return res.status(400).json({
+        success: false,
+        message: 'You cannot archive your own account'
+      });
+    }
+
+    const userCheck = await pool.query('SELECT id FROM users WHERE id = $1', [id]);
+    if (userCheck.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const result = await pool.query(
+      archived
+        ? `UPDATE users
+             SET archived_at = NOW(), archived_by = $2, archived_reason = $3,
+                 is_active = false, updated_at = NOW()
+           WHERE id = $1
+           RETURNING id, email, first_name, last_name, company_name, role, is_active, archived_at, archived_reason`
+        : `UPDATE users
+             SET archived_at = NULL, archived_by = NULL, archived_reason = NULL, updated_at = NOW()
+           WHERE id = $1
+           RETURNING id, email, first_name, last_name, company_name, role, is_active, archived_at, archived_reason`,
+      archived ? [id, req.user.id, reason || null] : [id]
+    );
+
+    res.json({
+      success: true,
+      message: archived ? 'Account archived' : 'Account restored',
+      user: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Archive user error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while updating archive status'
+    });
+  }
+};
+
+// GET /api/auth/verify-email/:token
+const verifyEmailToken = async (req, res) => {
+  try {
+    const { token } = req.params;
+    if (!token) {
+      return res.status(400).json({ success: false, message: 'Verification token is required' });
+    }
+
+    const result = await pool.query(
+      `SELECT id, email, email_verified, email_verification_expires
+       FROM users WHERE email_verification_token = $1`,
+      [token]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(400).json({ success: false, message: 'Invalid or already-used verification link.' });
+    }
+
+    const user = result.rows[0];
+    if (user.email_verified) {
+      return res.json({ success: true, message: 'Email already verified. You can log in once approved.', data: { email: user.email } });
+    }
+    if (user.email_verification_expires && new Date(user.email_verification_expires) < new Date()) {
+      return res.status(400).json({ success: false, status: 'expired', message: 'This verification link has expired. Please request a new one.' });
+    }
+
+    await pool.query(
+      `UPDATE users
+         SET email_verified = true, email_verification_token = NULL,
+             email_verification_expires = NULL, updated_at = NOW()
+       WHERE id = $1`,
+      [user.id]
+    );
+
+    res.json({ success: true, message: 'Email verified successfully.', data: { email: user.email } });
+  } catch (error) {
+    console.error('Verify email error:', error);
+    res.status(500).json({ success: false, message: 'Server error during email verification' });
+  }
+};
+
+// POST /api/auth/resend-verification  { email }
+const resendVerification = async (req, res) => {
+  const genericResponse = () =>
+    res.json({ success: true, message: 'If that account exists and is unverified, a new verification email has been sent.' });
+
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Email is required' });
+    }
+
+    const result = await pool.query(
+      `SELECT id, email, first_name, last_name, email_verified FROM users WHERE email = $1`,
+      [email]
+    );
+    if (result.rows.length === 0 || result.rows[0].email_verified) {
+      return genericResponse();
+    }
+
+    const user = result.rows[0];
+    const newToken = makeVerificationToken();
+    await pool.query(
+      `UPDATE users
+         SET email_verification_token = $2,
+             email_verification_expires = $3,
+             updated_at = NOW()
+       WHERE id = $1`,
+      [user.id, newToken, new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS)]
+    );
+
+    try {
+      await sendVerificationEmail(user, newToken);
+    } catch (mailErr) {
+      console.error('Resend verification email error:', mailErr.message);
+    }
+
+    return genericResponse();
+  } catch (error) {
+    console.error('Resend verification error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
 // Update module.exports at the end of the file
-module.exports = { 
-  register, 
-  login, 
-  getProfile, 
-  updateProfile, 
-  getAllUsers, 
+module.exports = {
+  register,
+  login,
+  getProfile,
+  updateProfile,
+  getAllUsers,
   getUserById,
   updateUserStatus,
   getPendingSubConsultants,
   getRejectedSubConsultants,
-  deleteUser
+  deleteUser,
+  archiveUser,
+  verifyEmailToken,
+  resendVerification
 };

@@ -75,7 +75,7 @@
 
 // src/routes/authRoutes.js
 const express = require('express');
-const { register, login, getProfile, updateProfile, getAllUsers, getUserById, getPendingSubConsultants, updateUserStatus, deleteUser, getRejectedSubConsultants } = require('../controllers/auth.controller');
+const { register, login, getProfile, updateProfile, getAllUsers, getUserById, getPendingSubConsultants, updateUserStatus, deleteUser, getRejectedSubConsultants, archiveUser, verifyEmailToken, resendVerification } = require('../controllers/auth.controller');
 const { authenticate } = require('../../middleware/auth');
 const db = require('../../db');
 const { emailTemplates } = require('../../services/emailService');
@@ -84,6 +84,8 @@ const authRoutes = express();
 
 authRoutes.post('/register', register);
 authRoutes.post('/login', login);
+authRoutes.get('/verify-email/:token', verifyEmailToken);
+authRoutes.post('/resend-verification', resendVerification);
 authRoutes.get('/internalteam', async (req,res)=>{
     try{
         const query=`
@@ -129,6 +131,7 @@ authRoutes.get('/users/pending', authenticate, getPendingSubConsultants);
 authRoutes.get('/users/rejected', authenticate, getRejectedSubConsultants);
 authRoutes.get('/users/:id', authenticate, getUserById);
 authRoutes.patch('/users/:id/status', authenticate, updateUserStatus);
+authRoutes.patch('/users/:id/archive', authenticate, archiveUser);
 authRoutes.delete('/users/:id', authenticate, deleteUser);
 // PUT /api/users/:id/approve
 authRoutes.put('/users/:id/approve', async (req, res) => {
@@ -153,8 +156,8 @@ authRoutes.put('/users/:id/approve', async (req, res) => {
 
     // First, get the user details before updating
     const getUserQuery = `
-      SELECT id, first_name, last_name, email, role, phone, whatsapp_number, company_name, location, is_active
-      FROM users 
+      SELECT id, first_name, last_name, email, role, phone, whatsapp_number, company_name, location, is_active, email_verified
+      FROM users
       WHERE id = $1
     `;
     const userResult = await db.query(getUserQuery, [userId]);
@@ -170,9 +173,17 @@ authRoutes.put('/users/:id/approve', async (req, res) => {
 
     // Check if user is already processed
     if (userData.is_active !== null) {
-      return res.status(400).json({ 
-        success: false, 
-        message: `User has already been ${userData.is_active ? 'approved' : 'rejected'}` 
+      return res.status(400).json({
+        success: false,
+        message: `User has already been ${userData.is_active ? 'approved' : 'rejected'}`
+      });
+    }
+
+    // A partner cannot be approved until they have verified their email address
+    if (action === 'approve' && userData.email_verified === false) {
+      return res.status(400).json({
+        success: false,
+        message: 'This partner has not verified their email address yet. They must verify before approval.'
       });
     }
 

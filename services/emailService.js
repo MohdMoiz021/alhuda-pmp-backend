@@ -359,6 +359,31 @@ const emailTemplates = {
     });
   },
 
+  // Confirm ownership of the email address used at registration
+  verifyEmail: async ({ name, email, verify_url }) => {
+    if (!email || !verify_url) throw new Error('email and verify_url are required');
+    const body = `
+      <p>Hi ${name || 'there'},</p>
+      <p>Please confirm this email address to complete your Partner registration. Your application can only be reviewed after your email is verified.</p>
+      <div class="btn-center">
+        <a href="${verify_url}" class="btn">Verify Email Address</a>
+      </div>
+      <p style="font-size:13px;color:#6e6e73;margin-bottom:8px;">Or copy this link into your browser:</p>
+      <div class="link-box">${verify_url}</div>
+      <p style="font-size:13px;color:#6e6e73;">This link expires in <strong>24 hours</strong>.</p>
+      <div class="warning-box">
+        If you didn't create this account, you can safely ignore this email.
+      </div>
+    `;
+    const text = `Verify your email\n\nHi ${name || 'there'},\n\nConfirm your email: ${verify_url}\n\nThis link expires in 24 hours.\n\nIf you didn't create this account, ignore this email.`;
+    return sendEmail({
+      to: email,
+      subject: 'Verify your email address',
+      html: wrapEmail('Email Verification', 'Confirm your email address.', body),
+      text,
+    });
+  },
+
   // Password reset
   passwordReset: async ({ email, name, resetLink, role }) => {
     if (!email) throw new Error('Email address is required for password reset');
